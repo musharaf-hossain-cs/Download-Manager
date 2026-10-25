@@ -1,0 +1,62 @@
+# Rust
+/target/
+**/*.rs.bk
+# This is an application repository; commit Cargo.lock when the Rust workspace is created.
+
+# Node / TypeScript
+node_modules/
+dist/
+coverage/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# Tauri / packaging
+src-tauri/target/
+*.msi
+*.msix
+*.appx
+*.exe
+*.pdb
+
+# Runtime data and downloaded content
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+downloads/
+partials/
+benchmarks/artifacts/
+test-results/
+playwright-report/
+
+# Browser test profiles/extensions
+.browser-profiles/
+web-ext-artifacts/
+
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+*.key
+*.pfx
+*.p12
+*.pem
+secrets/
+
+# Logs, crash dumps and temporary files
+*.log
+*.dmp
+*.tmp
+*.temp
+*.part
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+Desktop.ini
