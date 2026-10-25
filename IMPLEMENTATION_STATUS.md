@@ -38,8 +38,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S026 | DONE | `finalize::tests`: destination-local staging is copied, synced, SHA-256 verified, renamed, and failure leaves the destination/source safe. |
 | S027 | DONE | `transfer::tests::pause_stops_the_stream_at_an_exact_synced_offset` and `storage::tests::graceful_pause_persists_exact_single_offset_atomically`. |
 | S028 | DONE | `resume::tests`: matching object resumes only the missing range; changed ETag or size refuses before opening the partial file. |
-| S029 | TODO | — |
-| S030 | TODO | — |
+| S029 | DONE | `resume::tests::server_without_range_support_requires_restart_without_appending`; partial bytes remain unchanged and no resume GET occurs. |
+| S030 | DONE | `checkpoint::tests::fake_clock_and_byte_threshold_bound_checkpoint_writes`; 5-second/8-MiB thresholds trigger first and reset cleanly. |
 | S031 | TODO | — |
 | S032 | TODO | — |
 | S033 | TODO | — |

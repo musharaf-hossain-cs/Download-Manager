@@ -295,4 +295,27 @@ mod tests {
             assert_eq!(server.requests().len(), 1);
         }
     }
+
+    #[test]
+    fn server_without_range_support_requires_restart_without_appending() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok(Vec::new())
+                .header("ETag", "\"v1\"")
+                .header("Content-Length", "11"),
+        ]);
+        let directory = tempdir().expect("directory");
+        let partial = directory.path().join("file.part");
+        fs::write(&partial, b"hello").expect("partial");
+        let error = resume_single_stream(
+            &HttpUrl::parse(server.url("/file")).expect("URL"),
+            &partial,
+            5,
+            &identity("\"v1\"", 11),
+            |_| {},
+        )
+        .expect_err("restart required");
+        assert!(matches!(error, ResumeError::RestartRequired));
+        assert_eq!(fs::read(&partial).expect("unchanged"), b"hello");
+        assert_eq!(server.requests().len(), 1);
+    }
 }

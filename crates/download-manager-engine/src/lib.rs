@@ -1,5 +1,6 @@
 #![doc = "Core transfer-engine boundary for Download Manager."]
 
+pub mod checkpoint;
 pub mod domain;
 pub mod filename;
 pub mod finalize;
