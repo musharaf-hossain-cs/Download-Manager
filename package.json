@@ -1,0 +1,15 @@
+{
+  "name": "download-manager-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Windows download manager workspace",
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": "24.22.1",
+    "pnpm": "12.15.0"
+  },
+  "scripts": {
+    "build": "pnpm --recursive build"
+  }
+}
