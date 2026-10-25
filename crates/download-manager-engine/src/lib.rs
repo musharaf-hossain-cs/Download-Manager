@@ -11,6 +11,7 @@ pub mod probe;
 pub mod recovery;
 pub mod resume;
 pub mod retry;
+pub mod segmented;
 pub mod state;
 pub mod storage;
 pub mod transfer;
