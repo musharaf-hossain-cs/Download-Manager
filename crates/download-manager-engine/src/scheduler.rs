@@ -33,6 +33,8 @@ impl ScheduledSegment {
 pub enum SchedulerError {
     #[error("initial ranges must be non-empty, ordered, and adjacent")]
     InvalidRangeMap,
+    #[error("minimum split size must be greater than zero")]
+    InvalidMinimumSplitSize,
     #[error("unknown segment {0}")]
     UnknownSegment(u64),
     #[error("offset {offset} is outside segment {segment_id}")]
@@ -44,6 +46,15 @@ pub enum SchedulerError {
 pub struct DynamicScheduler {
     segments: Vec<ScheduledSegment>,
     next_id: u64,
+    minimum_split_size: u64,
+    metrics: SchedulerMetrics,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SchedulerMetrics {
+    pub split_count: u64,
+    pub idle_worker_events: u64,
+    pub unsatisfied_idle_events: u64,
 }
 
 impl DynamicScheduler {
@@ -52,6 +63,20 @@ impl DynamicScheduler {
     /// # Errors
     /// Returns [`SchedulerError::InvalidRangeMap`] for empty, overlapping, or gapped input.
     pub fn new(ranges: &[ByteRange]) -> Result<Self, SchedulerError> {
+        Self::with_minimum_split_size(ranges, 1)
+    }
+
+    /// Creates a scheduler that never produces a new remainder below `minimum_split_size`.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid range map or a zero minimum split size.
+    pub fn with_minimum_split_size(
+        ranges: &[ByteRange],
+        minimum_split_size: u64,
+    ) -> Result<Self, SchedulerError> {
+        if minimum_split_size == 0 {
+            return Err(SchedulerError::InvalidMinimumSplitSize);
+        }
         if ranges.is_empty()
             || ranges.iter().any(|range| range.is_empty())
             || ranges
@@ -75,7 +100,12 @@ impl DynamicScheduler {
                 segment
             })
             .collect();
-        Ok(Self { segments, next_id })
+        Ok(Self {
+            segments,
+            next_id,
+            minimum_split_size,
+            metrics: SchedulerMetrics::default(),
+        })
     }
 
     /// Records the next byte not yet completed by a worker.
@@ -103,13 +133,19 @@ impl DynamicScheduler {
     /// Splits the largest active remainder and assigns its tail to an idle worker.
     #[must_use]
     pub fn steal_largest_remaining(&mut self) -> Option<WorkAssignment> {
+        self.metrics.idle_worker_events += 1;
+        let minimum_remainder = self.minimum_split_size.saturating_mul(2);
         let donor_index = self
             .segments
             .iter()
             .enumerate()
-            .filter(|(_, segment)| segment.active && segment.remaining() >= 2)
+            .filter(|(_, segment)| segment.active && segment.remaining() >= minimum_remainder)
             .max_by_key(|(_, segment)| (segment.remaining(), std::cmp::Reverse(segment.start)))
-            .map(|(index, _)| index)?;
+            .map(|(index, _)| index);
+        let Some(donor_index) = donor_index else {
+            self.metrics.unsatisfied_idle_events += 1;
+            return None;
+        };
         let donor = &mut self.segments[donor_index];
         let old_end = donor.end;
         let stolen_start = donor.next_offset + donor.remaining() / 2;
@@ -122,6 +158,7 @@ impl DynamicScheduler {
             },
         };
         self.next_id += 1;
+        self.metrics.split_count += 1;
         self.segments.push(ScheduledSegment {
             id: assignment.segment_id,
             start: assignment.range.start,
@@ -130,6 +167,11 @@ impl DynamicScheduler {
             active: true,
         });
         Some(assignment)
+    }
+
+    #[must_use]
+    pub const fn metrics(&self) -> SchedulerMetrics {
+        self.metrics
     }
 
     #[must_use]
@@ -153,7 +195,7 @@ impl DynamicScheduler {
 
 #[cfg(test)]
 mod tests {
-    use super::DynamicScheduler;
+    use super::{DynamicScheduler, SchedulerMetrics};
     use crate::segmented::{ByteRange, plan_fixed_ranges};
 
     #[test]
@@ -193,6 +235,31 @@ mod tests {
         assert_eq!(
             unfinished.iter().map(|work| work.range.len()).sum::<u64>(),
             450
+        );
+    }
+
+    #[test]
+    fn minimum_split_size_prevents_tiny_segments_and_records_idle_workers() {
+        let mut scheduler =
+            DynamicScheduler::with_minimum_split_size(&[ByteRange { start: 0, end: 999 }], 128)
+                .expect("scheduler");
+        assert!(scheduler.steal_largest_remaining().is_some());
+        assert!(scheduler.steal_largest_remaining().is_some());
+        assert!(scheduler.steal_largest_remaining().is_some());
+        assert!(scheduler.steal_largest_remaining().is_none());
+        assert!(
+            scheduler
+                .unfinished_ranges()
+                .iter()
+                .all(|assignment| assignment.range.len() >= 128)
+        );
+        assert_eq!(
+            scheduler.metrics(),
+            SchedulerMetrics {
+                split_count: 3,
+                idle_worker_events: 4,
+                unsatisfied_idle_events: 1,
+            }
         );
     }
 }
