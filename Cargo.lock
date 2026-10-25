@@ -102,6 +102,7 @@ dependencies = [
 name = "download-manager-engine"
 version = "0.1.0"
 dependencies = [
+ "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde",

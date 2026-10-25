@@ -1,6 +1,7 @@
 #![doc = "Core transfer-engine boundary for Download Manager."]
 
 pub mod domain;
+pub mod filename;
 pub mod ipc;
 pub mod probe;
 pub mod state;

@@ -31,8 +31,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S019 | DONE | Rust oversize/URL/nonce/replay rejection tests and extension `protocol.test.ts` encoding/validation tests. |
 | S020 | DONE | `test_support::tests::programmable_server_serves_status_headers_body_and_delay`; local fixture controls status, headers, body, delay, and captures requests. |
 | S021 | DONE | `probe::tests`: HEAD denial falls back to a one-byte ranged GET; redirects, unknown length, range identity, and failure status are covered. |
-| S022 | TODO | — |
-| S023 | TODO | — |
+| S022 | DONE | `filename::tests::filename_selection_prefers_rfc5987_then_legacy_url_and_mime`; RFC 5987 Unicode, quoted legacy, URL, and MIME fallback table passes. |
+| S023 | DONE | `filename::tests::sanitizer_rejects_traversal_ads_devices_and_control_characters` plus Unicode length-bound coverage. |
 | S024 | TODO | — |
 | S025 | TODO | — |
 | S026 | TODO | — |
