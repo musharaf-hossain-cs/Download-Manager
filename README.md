@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: requirements and implementation planning.** No application binary is available yet.
+> **Project status: Milestone 0 repository baseline.** The workspace, component boundaries, quality gates, and CI policy are in place; download behavior begins in later milestones.
 
 ## Goals
 
@@ -23,7 +23,7 @@ The implementation plan divides the project into small quota-safe slices. Each s
 
 ## Planned architecture
 
-The provisional architecture uses a Rust download engine and native host, a Tauri desktop shell, SQLite state, TypeScript WebExtensions and a restricted FFmpeg-based media worker. The first implementation phase must validate and record these choices in architecture decision records before feature work begins.
+The accepted baseline uses a Rust download engine and native host, a Tauri desktop shell, SQLite state, TypeScript WebExtensions and a restricted FFmpeg-based media worker. The process boundaries and dependency rules are recorded in [`ADR 0001`](./docs/adr/0001-application-architecture.md).
 
 ```text
 Browser extensions ──native messaging──► Native host / engine
@@ -40,7 +40,7 @@ This project is intended for content the user is authorized to download. It will
 
 ## Development workflow
 
-Development has not started. When it does, contributors should work through the phases in [`PROGRESSIVE_IMPLEMENTATION_PLAN.md`](./PROGRESSIVE_IMPLEMENTATION_PLAN.md) in order and keep the repository buildable and tested after every slice.
+Contributors work through the slices in [`PROGRESSIVE_IMPLEMENTATION_PLAN.md`](./PROGRESSIVE_IMPLEMENTATION_PLAN.md) in order and keep the repository buildable and tested after every slice. Current state and evidence live in [`IMPLEMENTATION_STATUS.md`](./IMPLEMENTATION_STATUS.md).
 
 Expected quality gates after the workspace bootstrap phase:
 
@@ -53,14 +53,23 @@ pnpm test
 pnpm typecheck
 ```
 
-The exact supported toolchain and commands will be pinned in the repository during Phase 01–02.
+Run every fast local gate on Windows with:
+
+```powershell
+./scripts/verify.ps1
+```
+
+The repository pins Rust 1.99.1, Node.js 24.22.1 LTS, and pnpm 12.15.0. Security tooling and its pinned CI versions are documented by [the security workflow](./.github/workflows/security.yml).
 
 ## Current repository contents
 
 ```text
-README.md
-REQUIREMENTS.md
-PROGRESSIVE_IMPLEMENTATION_PLAN.md
+apps/                 TypeScript desktop boundary
+crates/               Rust engine, CLI and native-host crates
+docs/                 Architecture decisions and traceability format
+extensions/           Shared browser-extension boundary
+scripts/              Local quality and policy gates
+.github/workflows/    Windows CI and security policy
 ```
 
 ## License

@@ -1,0 +1,11 @@
+title = "Download Manager secret scanning policy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known documentation placeholders"
+paths = [
+  '''docs/TRACEABILITY\.md''',
+]
+
