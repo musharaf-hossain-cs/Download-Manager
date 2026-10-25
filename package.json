@@ -10,6 +10,24 @@
     "pnpm": "12.15.0"
   },
   "scripts": {
-    "build": "pnpm --recursive build"
+    "build": "pnpm --recursive build",
+    "format": "prettier --write \"**/*.{js,mjs,json,ts,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs,json,ts,yaml,yml}\"",
+    "lint": "eslint .",
+    "test": "pnpm --recursive test",
+    "typecheck": "pnpm --recursive typecheck",
+    "verify:docs": "node scripts/verify-markdown.mjs",
+    "verify:status": "node scripts/verify-status.mjs",
+    "audit:dependencies": "pnpm audit --audit-level high",
+    "audit:licenses": "license-checker-rseidelsohn --development --excludePrivatePackages --summary --onlyAllow \"0BSD;Apache-2.0;BlueOak-1.0.0;BSD-2-Clause;BSD-3-Clause;CC-BY-3.0;CC0-1.0;ISC;MIT;MPL-2.0;Python-2.0;Unlicense\""
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
+    "license-checker-rseidelsohn": "5.0.1",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
   }
 }
