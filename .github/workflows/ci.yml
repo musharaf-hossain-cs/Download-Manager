@@ -1,0 +1,67 @@
+name: Baseline CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    name: Documentation contracts
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Verify documentation and status
+        shell: pwsh
+        run: |
+          node scripts/verify-markdown.mjs
+          node scripts/verify-status.mjs
+
+  rust:
+    name: Rust build and tests
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt
+      - name: Run Rust quality gates
+        shell: pwsh
+        run: ./scripts/rust-quality.ps1
+
+  typescript:
+    name: TypeScript build and tests
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Activate pinned pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.15.0 --activate
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run TypeScript quality gates
+        shell: pwsh
+        run: ./scripts/typescript-quality.ps1
