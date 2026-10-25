@@ -2,6 +2,7 @@
 
 pub mod adaptive;
 pub mod auth;
+pub mod benchmark;
 pub mod checkpoint;
 pub mod credentials;
 pub mod disk;
@@ -12,6 +13,7 @@ pub mod finalize;
 pub mod integrity;
 pub mod ipc;
 pub mod limits;
+pub mod network;
 pub mod network_metrics;
 pub mod probe;
 pub mod proxy;

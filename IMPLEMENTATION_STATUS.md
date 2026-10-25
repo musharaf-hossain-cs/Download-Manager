@@ -63,8 +63,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S051 | DONE | `proxy::tests`: local manual proxy routing and exact/suffix/wildcard/`<local>` bypass matrix pass; the full suite also repeats multi-range resume with independent Windows file handles. |
 | S052 | DONE | `auth::tests::basic_and_digest_succeed_and_bad_credentials_do_not_loop`; Basic and RFC-style MD5 Digest authenticate on one retry, while rejection stops after two total requests. |
 | S053 | DONE | `credentials::tests::windows_store_round_trips_without_plaintext_database_or_log_value`; the current-user Windows vault round-trips/deletes the secret while SQLite and debug output contain only a non-secret reference. |
-| S054 | TODO | — |
-| S055 | TODO | — |
+| S054 | DONE | `network::tests::dual_stack_fixture_falls_back_after_failed_ipv6_attempt`; system-resolved addresses use bounded per-address attempts and fall back from IPv6 to IPv4. |
+| S055 | DONE | `benchmark::tests::raw_metric_json_has_goodput_cpu_memory_connections_and_hash`; stable JSON records goodput, CPU, peak memory, wire/unique bytes, connection/handshake counts, and SHA-256. |
 | S056 | TODO | — |
 | S057 | TODO | — |
 | S058 | TODO | — |
