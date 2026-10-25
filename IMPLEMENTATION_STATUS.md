@@ -37,7 +37,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S025 | DONE | `finalize::tests::same_volume_conflict_policies_are_explicit_and_safe`; ask/overwrite/counter-rename/resume-if-same all preserve complete-file semantics. |
 | S026 | DONE | `finalize::tests`: destination-local staging is copied, synced, SHA-256 verified, renamed, and failure leaves the destination/source safe. |
 | S027 | DONE | `transfer::tests::pause_stops_the_stream_at_an_exact_synced_offset` and `storage::tests::graceful_pause_persists_exact_single_offset_atomically`. |
-| S028 | TODO | — |
+| S028 | DONE | `resume::tests`: matching object resumes only the missing range; changed ETag or size refuses before opening the partial file. |
 | S029 | TODO | — |
 | S030 | TODO | — |
 | S031 | TODO | — |
