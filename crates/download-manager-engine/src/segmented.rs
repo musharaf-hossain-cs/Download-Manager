@@ -16,6 +16,7 @@ use thiserror::Error;
 use crate::{
     domain::{HttpUrl, JobId, UnixMillis},
     storage::{Database, StorageError},
+    transfer::{SingleStreamDownloader, TransferError},
 };
 
 const BUFFER_SIZE: usize = 64 * 1024;
@@ -43,6 +44,7 @@ pub struct SegmentedOutcome {
     pub downloaded_bytes: u64,
     pub sha256: String,
     pub ranges: [ByteRange; 2],
+    pub used_single_stream_fallback: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +66,10 @@ pub enum SegmentedError {
     Request(#[from] reqwest::Error),
     #[error("range response returned status {0}")]
     HttpStatus(u16),
+    #[error("server ignored the requested byte range")]
+    RangeIgnored,
+    #[error("response Content-Range does not match requested bytes {start}-{end}")]
+    InvalidContentRange { start: u64, end: u64 },
     #[error("range {start}-{end} returned {actual} bytes, expected {expected}")]
     LengthMismatch {
         start: u64,
@@ -75,6 +81,8 @@ pub enum SegmentedError {
     Io(#[from] std::io::Error),
     #[error("durable segment state failed: {0}")]
     Storage(#[from] StorageError),
+    #[error("single-stream fallback failed: {0}")]
+    Fallback(#[from] TransferError),
     #[error("range worker panicked")]
     WorkerPanicked,
 }
@@ -171,13 +179,25 @@ impl TwoRangeDownloader {
         ];
         debug_assert_eq!(ranges[0].end + 1, ranges[1].start);
 
-        download_ranges(&self.client, url, &output, &ranges)?;
+        if let Err(SegmentedError::RangeIgnored | SegmentedError::InvalidContentRange { .. }) =
+            download_ranges(&self.client, url, &output, &ranges)
+        {
+            drop(output);
+            let fallback = SingleStreamDownloader::new()?.download(url, temporary_path, |_| {})?;
+            return Ok(SegmentedOutcome {
+                downloaded_bytes: fallback.downloaded_bytes,
+                sha256: fallback.sha256,
+                ranges,
+                used_single_stream_fallback: true,
+            });
+        }
         output.sync_all()?;
         let sha256 = hash_file(temporary_path)?;
         Ok(SegmentedOutcome {
             downloaded_bytes: object_length,
             sha256,
             ranges,
+            used_single_stream_fallback: false,
         })
     }
 
@@ -257,7 +277,20 @@ fn download_range(
         )
         .send()?;
     if response.status() != StatusCode::PARTIAL_CONTENT {
+        if response.status().is_success() {
+            return Err(SegmentedError::RangeIgnored);
+        }
         return Err(SegmentedError::HttpStatus(response.status().as_u16()));
+    }
+    let content_range = response
+        .headers()
+        .get(header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok());
+    if !content_range.is_some_and(|value| content_range_matches(value, range)) {
+        return Err(SegmentedError::InvalidContentRange {
+            start: range.start,
+            end: range.end,
+        });
     }
     file.seek(SeekFrom::Start(range.start))?;
     let expected = range.len();
@@ -283,6 +316,22 @@ fn download_range(
     }
     file.flush()?;
     Ok(())
+}
+
+fn content_range_matches(value: &str, expected: ByteRange) -> bool {
+    let Some(value) = value.strip_prefix("bytes ") else {
+        return false;
+    };
+    let Some((bounds, total)) = value.split_once('/') else {
+        return false;
+    };
+    if total != "*" && total.parse::<u64>().is_err() {
+        return false;
+    }
+    let Some((start, end)) = bounds.split_once('-') else {
+        return false;
+    };
+    start.parse::<u64>() == Ok(expected.start) && end.parse::<u64>() == Ok(expected.end)
 }
 
 fn download_ranges(
@@ -374,6 +423,7 @@ mod tests {
 
         assert_eq!(fs::read(path).expect("output"), body);
         assert_eq!(outcome.downloaded_bytes, 200_003);
+        assert!(!outcome.used_single_stream_fallback);
         assert_eq!(
             outcome.ranges,
             [
@@ -521,6 +571,88 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ignored_or_invalid_content_range_falls_back_without_corruption() {
+        let body: Vec<u8> = (0_u32..131_077)
+            .map(|value| u8::try_from(value % 239).expect("byte"))
+            .collect();
+        for fault in [FallbackFault::Ignored, FallbackFault::InvalidHeader] {
+            let (url, server) = fallback_server(Arc::new(body.clone()), fault);
+            let directory = tempdir().expect("temp directory");
+            let path = directory.path().join("fallback.part");
+            fs::write(&path, vec![0xff; body.len()]).expect("poisoned partial");
+            let outcome = TwoRangeDownloader::new()
+                .expect("downloader")
+                .download(&HttpUrl::parse(url).expect("URL"), body.len() as u64, &path)
+                .expect("fallback download");
+            server.join().expect("server");
+            assert!(outcome.used_single_stream_fallback);
+            assert_eq!(outcome.downloaded_bytes, body.len() as u64);
+            assert_eq!(fs::read(&path).expect("output"), body);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum FallbackFault {
+        Ignored,
+        InvalidHeader,
+    }
+
+    fn fallback_server(
+        body: Arc<Vec<u8>>,
+        fault: FallbackFault,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = thread::spawn(move || {
+            for request_index in 0..3 {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let request = read_headers(&mut stream);
+                if request_index < 2 {
+                    let range = parse_range(&request);
+                    match fault {
+                        FallbackFault::Ignored => {
+                            write!(
+                                stream,
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            )
+                            .expect("ignored headers");
+                            stream.write_all(&body).expect("ignored body");
+                        }
+                        FallbackFault::InvalidHeader => {
+                            let start = usize::try_from(range.start).expect("start");
+                            let end = usize::try_from(range.end).expect("end");
+                            let bytes = &body[start..=end];
+                            write!(
+                                stream,
+                                "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes 0-0/{}\r\nConnection: close\r\n\r\n",
+                                bytes.len(),
+                                body.len()
+                            )
+                            .expect("invalid headers");
+                            stream.write_all(bytes).expect("range body");
+                        }
+                    }
+                } else {
+                    assert!(
+                        !request
+                            .lines()
+                            .any(|line| line.to_ascii_lowercase().starts_with("range:"))
+                    );
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .expect("fallback headers");
+                    stream.write_all(&body).expect("fallback body");
+                }
+            }
+        });
+        (format!("http://{address}/file"), server)
+    }
+
     fn timestamp(value: i64) -> UnixMillis {
         UnixMillis::new(value).expect("timestamp")
     }
@@ -605,13 +737,20 @@ mod tests {
     }
 
     fn read_range(stream: &mut TcpStream) -> ByteRange {
+        parse_range(&read_headers(stream))
+    }
+
+    fn read_headers(stream: &mut TcpStream) -> String {
         let mut bytes = Vec::new();
         let mut buffer = [0_u8; 512];
         while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
             let count = stream.read(&mut buffer).expect("request");
             bytes.extend_from_slice(&buffer[..count]);
         }
-        let request = String::from_utf8(bytes).expect("request text");
+        String::from_utf8(bytes).expect("request text")
+    }
+
+    fn parse_range(request: &str) -> ByteRange {
         let value = request
             .lines()
             .find_map(|line| {
