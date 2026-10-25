@@ -5,6 +5,9 @@ pub mod ipc;
 pub mod state;
 pub mod storage;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 /// The engine version, kept in sync with the Cargo package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

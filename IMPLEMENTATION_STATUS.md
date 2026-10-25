@@ -29,7 +29,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S017 | DONE | `storage::tests::retention_never_age_deletes_active_or_partial_jobs`; only completed history is age-deleted. |
 | S018 | DONE | Rust `ipc::tests::ui_schema_has_a_stable_snapshot` + rejection tests and desktop `protocol.test.ts` cross-language snapshot. |
 | S019 | DONE | Rust oversize/URL/nonce/replay rejection tests and extension `protocol.test.ts` encoding/validation tests. |
-| S020 | TODO | — |
+| S020 | DONE | `test_support::tests::programmable_server_serves_status_headers_body_and_delay`; local fixture controls status, headers, body, delay, and captures requests. |
 | S021 | TODO | — |
 | S022 | TODO | — |
 | S023 | TODO | — |
