@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-25
-- Current milestone: Milestone 0 — Public repository baseline
+- Current milestone: Milestone 1 — Domain and durable state (next slice: S010)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -10,15 +10,15 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | Slice | Status | Evidence |
 |---|---|---|
 | S000 | DONE | Baseline requirements, plan, README, and hygiene files in commit `31d4a56`. |
-| S001 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S002 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S003 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S004 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S005 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S006 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S007 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S008 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
-| S009 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S001 | DONE | Toolchains/workspaces pinned in `5bc2fb5`; clean checkout validated by Baseline CI. |
+| S002 | DONE | Rust engine/CLI/native-host and version snapshots in `20be380`; Cargo tests green. |
+| S003 | DONE | Desktop/extension packages and smoke tests in `08ffdfe`; pnpm frozen install and tests green. |
+| S004 | DONE | Accepted process-boundary/dependency decision in `docs/adr/0001-application-architecture.md`; both stacks build. |
+| S005 | DONE | Ledger and traceability template in `12e1af4`; verifier covers all 183 slices. |
+| S006 | DONE | Rust format/clippy/test gate in `59bab8e`; seeded formatting failure rejected and restored. |
+| S007 | DONE | TypeScript format/lint/build/type/test gate in `52cca64`; seeded formatting failure rejected and restored. |
+| S008 | DONE | Windows [Baseline CI run 40199752939](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) passed all three jobs. |
+| S009 | DONE | [Security policy run 40199752905](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752905) passed advisories, licenses, sources, and full-history secret scan. |
 | S010 | TODO | — |
 | S011 | TODO | — |
 | S012 | TODO | — |
@@ -197,10 +197,10 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 
 | Milestone | Command or artifact | Result |
 |---|---|---|
-| M0 | `node scripts/verify-markdown.mjs` | Pending final verification |
-| M0 | `node scripts/verify-status.mjs` | Pending final verification |
-| M0 | `powershell -File scripts/rust-quality.ps1` | Pending final verification |
-| M0 | `powershell -File scripts/typescript-quality.ps1` | Pending final verification |
-| M0 | GitHub Actions `Baseline CI` | Pending initial pushed run |
-| M0 | GitHub Actions `Security policy` | Pending initial pushed run |
+| M0 | `node scripts/verify-markdown.mjs` | Passed: 194 unique requirement IDs and valid local links. |
+| M0 | `node scripts/verify-status.mjs` | Passed: exactly one status row for each of 183 slices. |
+| M0 | `powershell -File scripts/rust-quality.ps1` | Passed: format, clippy with warnings denied, and workspace tests. |
+| M0 | `powershell -File scripts/typescript-quality.ps1` | Passed: format, lint, build, typecheck, and two smoke tests. |
+| M0 | [GitHub Actions `Baseline CI`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) | Passed on Windows: documentation, Rust, and TypeScript jobs. |
+| M0 | [GitHub Actions `Security policy`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752905) | Passed on Windows: dependency/license audit and full-history secret scan. |
 

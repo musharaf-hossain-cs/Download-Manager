@@ -31,12 +31,35 @@ jobs:
           corepack prepare pnpm@12.15.0 --activate
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install pinned Rust toolchain and audit tools
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Install checksummed Rust audit tools
         shell: pwsh
         run: |
-          rustup toolchain install 1.99.1 --profile minimal
-          cargo install cargo-audit --version 0.22.2 --locked
-          cargo install cargo-deny --version 0.20.2 --locked
+          $toolRoot = Join-Path $env:RUNNER_TEMP 'rust-audit-tools'
+          $auditArchive = Join-Path $toolRoot 'cargo-audit.zip'
+          $denyArchive = Join-Path $toolRoot 'cargo-deny.tar.gz'
+          New-Item -ItemType Directory -Path $toolRoot | Out-Null
+          Invoke-WebRequest `
+            -Uri 'https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-pc-windows-msvc-v0.22.2.zip' `
+            -OutFile $auditArchive
+          Invoke-WebRequest `
+            -Uri 'https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-pc-windows-msvc.tar.gz' `
+            -OutFile $denyArchive
+          $auditHash = (Get-FileHash -LiteralPath $auditArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $denyHash = (Get-FileHash -LiteralPath $denyArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($auditHash -ne '0a7316540862c13d954f648917ceacca593747baed6eec180fafa590be2710ab') {
+            throw "cargo-audit archive checksum mismatch: $auditHash"
+          }
+          if ($denyHash -ne '975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc') {
+            throw "cargo-deny archive checksum mismatch: $denyHash"
+          }
+          Expand-Archive -LiteralPath $auditArchive -DestinationPath (Join-Path $toolRoot 'audit')
+          tar -xf $denyArchive -C $toolRoot
+          $auditBin = (Get-ChildItem $toolRoot -Recurse -Filter 'cargo-audit.exe' | Select-Object -First 1).Directory.FullName
+          $denyBin = (Get-ChildItem $toolRoot -Recurse -Filter 'cargo-deny.exe' | Select-Object -First 1).Directory.FullName
+          @($auditBin, $denyBin) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Run dependency and license policy
         shell: pwsh
         run: ./scripts/security-quality.ps1
