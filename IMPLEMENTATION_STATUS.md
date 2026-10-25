@@ -42,8 +42,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S030 | DONE | `checkpoint::tests::fake_clock_and_byte_threshold_bound_checkpoint_writes`; 5-second/8-MiB thresholds trigger first and reset cleanly. |
 | S031 | DONE | `recovery::tests::database_ahead_behind_and_orphans_repair_safely`; file-ahead truncates, DB-ahead rewinds, missing/orphan partials are preserved and reported. |
 | S032 | DONE | `recovery::tests::twenty_seeded_process_kills_recover_without_corrupt_completion`; 20 real child processes are force-killed, reconciled, completed, and byte-verified. |
-| S033 | TODO | — |
-| S034 | TODO | — |
+| S033 | DONE | `retry::tests::deterministic_backoff_has_bounded_jitter_and_budget`; seeded exponential jitter is bounded, capped, and exhausts deterministically. |
+| S034 | DONE | `retry::tests::retry_after_seconds_date_malformed_and_status_mapping`; delta/date parsing and 408/425/429/5xx mapping pass. |
 | S035 | TODO | — |
 | S036 | TODO | — |
 | S037 | TODO | — |
