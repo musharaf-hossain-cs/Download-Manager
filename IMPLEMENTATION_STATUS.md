@@ -65,7 +65,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S053 | DONE | `credentials::tests::windows_store_round_trips_without_plaintext_database_or_log_value`; the current-user Windows vault round-trips/deletes the secret while SQLite and debug output contain only a non-secret reference. |
 | S054 | DONE | `network::tests::dual_stack_fixture_falls_back_after_failed_ipv6_attempt`; system-resolved addresses use bounded per-address attempts and fall back from IPv6 to IPv4. |
 | S055 | DONE | `benchmark::tests::raw_metric_json_has_goodput_cpu_memory_connections_and_hash`; stable JSON records goodput, CPU, peak memory, wire/unique bytes, connection/handshake counts, and SHA-256. |
-| S056 | TODO | — |
+| S056 | DONE | `benchmark::tests::two_fixture_runs_produce_reproducible_comparison_report`; two named metric captures generate identical JSON-compatible comparisons and stable Markdown with basis-point goodput deltas. |
 | S057 | TODO | — |
 | S058 | TODO | — |
 | S059 | TODO | — |
