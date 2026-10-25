@@ -6,6 +6,7 @@ pub mod ipc;
 pub mod probe;
 pub mod state;
 pub mod storage;
+pub mod transfer;
 
 #[cfg(test)]
 pub(crate) mod test_support;

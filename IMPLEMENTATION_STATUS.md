@@ -33,7 +33,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S021 | DONE | `probe::tests`: HEAD denial falls back to a one-byte ranged GET; redirects, unknown length, range identity, and failure status are covered. |
 | S022 | DONE | `filename::tests::filename_selection_prefers_rfc5987_then_legacy_url_and_mime`; RFC 5987 Unicode, quoted legacy, URL, and MIME fallback table passes. |
 | S023 | DONE | `filename::tests::sanitizer_rejects_traversal_ads_devices_and_control_characters` plus Unicode length-bound coverage. |
-| S024 | TODO | — |
+| S024 | DONE | `transfer::tests`: known/unknown-length HTTP bodies stream to a synced temp file with monotonic progress and verified SHA-256. |
 | S025 | TODO | — |
 | S026 | TODO | — |
 | S027 | TODO | — |
