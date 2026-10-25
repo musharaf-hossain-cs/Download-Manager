@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 2 complete.** The repository now includes durable domain/state storage and a correctness-first single-stream HTTP(S) engine with safe filenames, pause/resume, crash recovery, retry policy, integrity checks, and disk-full protection. Segmented acceleration begins in Milestone 3.
+> **Project status: Milestone 3 complete.** The engine now includes durable dynamic segmentation, 1–32 connection planning, safe range fallback/resume, adaptive concurrency, bandwidth/fairness/connection limits, proxy and Basic/Digest authentication, Windows Credential Manager integration, dual-stack fallback, and reproducible benchmark metrics/reports. Desktop application work begins in Milestone 4.
 
 ## Goals
 

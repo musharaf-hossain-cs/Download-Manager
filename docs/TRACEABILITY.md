@@ -18,7 +18,7 @@ This file defines the evidence format used as implementation proceeds. A require
 | `STATE-01` | P0 | S011–S012, S015 | Verified | `state::tests::transition_table_is_exhaustive`; `storage::tests::state_update_and_event_are_atomic` | Canonical transitions are reduced before an atomic state update + event insert. |
 | `DATA-01` | P0 | S010 | Verified | `domain::tests::ids_serialize_as_stable_uuid_strings` | Jobs, segments, events, and requests use UUID-backed IDs. |
 | `DATA-02` | P0 | S013–S016 | Verified | `storage::tests::database_creates_reopens_and_reports_schema_version`; `failed_migration_rolls_back_and_preserves_backup` | Migrations are ordered, transactional, and pre-migration backup protected. |
-| `DATA-03` | P0 | S010, S053, S119 | Implemented | `JobMetadata` and SQLite migrations contain references/non-secret metadata only. | Encrypted Windows credential storage and request-context cleanup remain owned by later slices. |
+| `DATA-03` | P0 | S010, S053, S119 | Implemented | `credentials::tests::windows_store_round_trips_without_plaintext_database_or_log_value` | Windows secrets are user-vault encrypted and SQLite/log output contains references only; request-context expiry cleanup remains S119. |
 | `DATA-05` | P0 | S017, S069 | Verified | `storage::tests::retention_never_age_deletes_active_or_partial_jobs` | Durable policy is verified; history UI remains S069. |
 | `BI-012` | P0 | S019, S080 | Implemented | `ipc::tests::extension_rejects_oversize_invalid_urls_and_bad_nonces`; duplicate request-ID test | Version, strict fields, size, scheme, nonce, and replay checks exist; packaged-ID allowlist remains S080. |
 | `SEC-002` | P0 | S018–S019 and feature slices | Implemented | UI/extension malformed, unknown-field, oversize, invalid-scheme, and invalid-nonce tests | Boundary foundation is verified; later page/media/header schemas retain ownership of their inputs. |
@@ -27,13 +27,30 @@ This file defines the evidence format used as implementation proceeds. A require
 | `DL-007` | P0 | S025, S070 | Implemented | `finalize::tests::same_volume_conflict_policies_are_explicit_and_safe` | Engine ask/overwrite/counter-rename/resume-if-same behavior is verified; persisted global default remains S070. |
 | `STATE-02` | P0 | S027, S063–S064 | Implemented | pause transfer and atomic checkpoint tests | Engine pause acknowledgment is verified; the complete desktop action surface remains S063–S064. |
 | `ENG-009` | P0 | S033–S034 | Implemented | `retry::tests` | Policy, jitter, budget, status mapping, and `Retry-After` parsing are verified; orchestration integration remains with later transfer controllers. |
-| `RES-001` | P0 | S030, S040 | Implemented | `checkpoint::tests::fake_clock_and_byte_threshold_bound_checkpoint_writes` | Single-stream 5-second/8-MiB policy is verified; multi-segment persistence remains S040. |
+| `RES-001` | P0 | S030, S040 | Verified | checkpoint fake-clock test; `segmented::tests::restart_requests_only_persisted_missing_segment_suffixes` | Periodic checkpoints and durable per-segment offsets resume only missing suffixes. |
 | `RES-002` | P0 | S027 | Verified | `transfer::tests::pause_stops_the_stream_at_an_exact_synced_offset`; `storage::tests::graceful_pause_persists_exact_single_offset_atomically` | Network reads stop before the synced offset is atomically acknowledged. |
 | `RES-003` | P0 | S031–S032 | Verified | `recovery::tests::twenty_seeded_process_kills_recover_without_corrupt_completion` | Twenty child processes are force-killed at seeded offsets; recovery discards at most one checkpoint window. |
 | `RES-004` | P0 | S028 | Verified | `resume::tests::changed_etag_or_size_refuses_without_touching_partial` | Identity mismatch is rejected before the partial file is opened for append. |
 | `RES-005` | P0 | S029 | Verified | `resume::tests::server_without_range_support_requires_restart_without_appending` | No-range resume returns a specific restart-required result and preserves bytes. |
 | `RES-006` | P0 | S035–S036 | Verified | `integrity::tests` | Streaming cancellation and MD5/SHA-1/SHA-256/SHA-512 formats/mismatches pass; weak algorithms are compatibility-only. |
 | `RES-007` | P0 | S025–S026 | Verified | `finalize::tests` | Same-volume rename and cross-volume copy/sync/SHA-256/rename preserve complete-file visibility. |
+| `RES-008` | P0 | S038, S041 | Verified | delayed two-range hash test; invalid/ignored `Content-Range` fallback test | Adjacent range coverage is exact, and inconsistent range responses cannot corrupt output. |
+| `ENG-002` | P0 | S039, S045–S046 | Verified | fixed planner boundary/property test; adaptive ramp/backoff tests | Fixed configuration and Auto remain bounded to 1–32 connections. |
+| `ENG-003` | P0 | S042–S043 | Verified | slow-worker stealing and minimum-split tests | Idle workers split the largest active remainder without tiny-segment explosion. |
+| `ENG-004` | P0 | S044 | Verified | keep-alive fixture reports one handshake and one reused request | Connection identity metrics distinguish handshakes from pooled reuse. |
+| `ENG-005` | P0 | S045–S046, S049 | Implemented | shaped ramp, pressure backoff, and weighted fairness tests | Throughput/retry/throttle/disk/fairness behavior is verified; later benchmark campaigns provide measured tuning evidence. |
+| `ENG-006` | P0 | S041 | Verified | `segmented::tests::ignored_or_invalid_content_range_falls_back_without_corruption` | Positional output is discarded before a clean single-stream restart. |
+| `ENG-007` | P0 | S048 | Verified | `limits::tests::global_and_per_host_caps_never_exceed_under_many_jobs` | Owned permits enforce global and normalized per-host ceilings. |
+| `ENG-010` | P0 | S052–S053 | Implemented | bounded Basic/Digest loop and Windows vault round-trip tests | Basic/Digest and encrypted credentials are verified; OS-integrated enterprise schemes remain capability-dependent. |
+| `ENG-011` | P0 | S047 | Verified | virtual-time global/per-job token-bucket test | Aggregate and per-download rates remain within ±5%. |
+| `ENG-012` | P0 | S049 | Verified | `fairness::tests::priority_has_weighted_advantage_without_starvation` | High/normal/low service is 4:2:1 with bounded low-priority wait. |
+| `ENG-016` | P0 | S050 | Verified | forced-retry byte accounting test | Unique coverage, wire traffic, and retry overhead are reported separately. |
+| `ENG-018` | P1 | S054 | Verified | dual-stack fallback fixture | Resolver-ordered IPv6/IPv4 addresses receive bounded attempts and safe fallback. |
+| `NET-001` | P0 | S051 | Verified | local proxy routing and no-proxy wildcard matrix | System, direct, per-scheme manual proxy, and host-scoped bypass modes are represented. |
+| `NET-003` | P0 | S052 | Implemented | Basic/Digest success, rejection, and request-count assertions | Basic and Digest are verified; enterprise schemes remain conditional on later OS-stack integration. |
+| `NET-004` | P0 | S053 | Verified | Windows Credential Manager round-trip/delete and plaintext scan | Only the current user can retrieve the OS-vault secret; persistence/logging uses a reference. |
+| `LIM-001` | P0 | S047 | Verified | virtual-time rate assertion | Global and per-download token buckets are both enforced. |
+| `LIM-003` | P0 | S048 | Verified | many-job global/per-host permit test | Active connection admission never exceeds configured aggregate or host caps. |
 | `DATA-04` | P0 | S031 | Verified | `recovery::tests::database_ahead_behind_and_orphans_repair_safely` | DB-ahead, file-ahead, missing, and orphan partial states are detected or safely repaired. |
 | `LIM-004` | P0 | S037, S115 | Implemented | `disk::tests` | Capacity precheck and exact safe disk-full offset are verified; automatic global active-job policy remains S115. |
 | `AC-03` | P0 | S028 | Verified | changed ETag and length fixtures | Unsafe append is blocked without changing the partial. |

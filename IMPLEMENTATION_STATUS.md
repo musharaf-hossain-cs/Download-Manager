@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 3 — Segmented high-speed engine (next slice: S038)
+- Current milestone: Milestone 4 — Desktop application (next slice: S057)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -211,4 +211,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M2 | `cargo +1.99.1-x86_64-pc-windows-gnu fmt --all -- --check`; `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed with the installed 64-bit CodeBlocks MinGW linker selected ahead of the incompatible legacy MinGW installation. |
 | M2 | `pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm test` | Passed: both TypeScript packages build/typecheck and 5 tests pass across 4 files. |
 | M2 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts | Passed: no known Rust/Node vulnerabilities; dependency sources and licenses accepted, including the HTTPS root-data `CDLA-Permissive-2.0` license. |
+| M3 | `cargo +1.99.1-x86_64-pc-windows-gnu test --workspace --locked` | Passed: 65 engine tests plus CLI/native-host integration tests; the child-process recovery helper remains intentionally ignored outside its parent harness. |
+| M3 | `cargo +1.99.1-x86_64-pc-windows-gnu fmt --all -- --check`; `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed; segmented I/O, schedulers, limits, proxy/auth, credential storage, networking, and benchmark modules are clean. |
+| M3 | `pnpm run format:check`; `pnpm run lint`; `pnpm run build`; `pnpm run typecheck`; `pnpm test` | Passed: both TypeScript packages build/typecheck and 5 tests pass across 4 files. |
+| M3 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts; Gitleaks full-history scan | Passed: no known vulnerabilities or leaks; dependency sources/licenses accepted (duplicate-version policy warnings only). |
 
