@@ -6,6 +6,7 @@ pub mod filename;
 pub mod finalize;
 pub mod ipc;
 pub mod probe;
+pub mod recovery;
 pub mod resume;
 pub mod state;
 pub mod storage;

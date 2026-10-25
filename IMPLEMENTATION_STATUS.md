@@ -40,8 +40,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S028 | DONE | `resume::tests`: matching object resumes only the missing range; changed ETag or size refuses before opening the partial file. |
 | S029 | DONE | `resume::tests::server_without_range_support_requires_restart_without_appending`; partial bytes remain unchanged and no resume GET occurs. |
 | S030 | DONE | `checkpoint::tests::fake_clock_and_byte_threshold_bound_checkpoint_writes`; 5-second/8-MiB thresholds trigger first and reset cleanly. |
-| S031 | TODO | — |
-| S032 | TODO | — |
+| S031 | DONE | `recovery::tests::database_ahead_behind_and_orphans_repair_safely`; file-ahead truncates, DB-ahead rewinds, missing/orphan partials are preserved and reported. |
+| S032 | DONE | `recovery::tests::twenty_seeded_process_kills_recover_without_corrupt_completion`; 20 real child processes are force-killed, reconciled, completed, and byte-verified. |
 | S033 | TODO | — |
 | S034 | TODO | — |
 | S035 | TODO | — |
