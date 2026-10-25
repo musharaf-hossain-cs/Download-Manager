@@ -180,7 +180,7 @@ impl TwoRangeDownloader {
         debug_assert_eq!(ranges[0].end + 1, ranges[1].start);
 
         if let Err(SegmentedError::RangeIgnored | SegmentedError::InvalidContentRange { .. }) =
-            download_ranges(&self.client, url, &output, &ranges)
+            download_ranges(&self.client, url, temporary_path, &ranges)
         {
             drop(output);
             let fallback = SingleStreamDownloader::new()?.download(url, temporary_path, |_| {})?;
@@ -239,7 +239,7 @@ impl TwoRangeDownloader {
                 actual: output.metadata()?.len(),
             });
         }
-        download_ranges(&self.client, url, &output, &requested_ranges)?;
+        download_ranges(&self.client, url, temporary_path, &requested_ranges)?;
         output.sync_all()?;
         for segment in &mut segments {
             if segment.durable_offset <= segment.end {
@@ -337,7 +337,7 @@ fn content_range_matches(value: &str, expected: ByteRange) -> bool {
 fn download_ranges(
     client: &Client,
     url: &HttpUrl,
-    output: &File,
+    output_path: &Path,
     ranges: &[ByteRange],
 ) -> Result<(), SegmentedError> {
     let error = Arc::new(Mutex::new(None));
@@ -346,7 +346,10 @@ fn download_ranges(
         for &range in ranges {
             let client = client.clone();
             let url = url.clone();
-            let mut file = output.try_clone()?;
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(output_path)?;
             let first_error = Arc::clone(&error);
             workers.push(scope.spawn(move || {
                 let result = download_range(&client, &url, range, &mut file);

@@ -12,6 +12,7 @@ pub mod ipc;
 pub mod limits;
 pub mod network_metrics;
 pub mod probe;
+pub mod proxy;
 pub mod recovery;
 pub mod resume;
 pub mod retry;

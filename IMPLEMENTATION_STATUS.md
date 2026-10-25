@@ -60,7 +60,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S048 | DONE | `limits::tests::global_and_per_host_caps_never_exceed_under_many_jobs`; owned permits enforce case-normalized host and aggregate connection ceilings. |
 | S049 | DONE | `fairness::tests::priority_has_weighted_advantage_without_starvation`; deficit round robin produces exact 4:2:1 service while bounding low-priority wait. |
 | S050 | DONE | `network_metrics::tests::forced_retry_reports_unique_wire_and_retry_bytes_separately`; overlapping retry ranges increase wire/retry totals without double-counting unique coverage. |
-| S051 | TODO | — |
+| S051 | DONE | `proxy::tests`: local manual proxy routing and exact/suffix/wildcard/`<local>` bypass matrix pass; the full suite also repeats multi-range resume with independent Windows file handles. |
 | S052 | TODO | — |
 | S053 | TODO | — |
 | S054 | TODO | — |
