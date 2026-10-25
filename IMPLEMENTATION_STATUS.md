@@ -51,7 +51,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S039 | DONE | `segmented::tests::fixed_planner_covers_boundaries_small_objects_and_large_files`; 1–32 balanced adjacent ranges cover tiny, uneven, and 1-TiB objects without gaps. |
 | S040 | DONE | `segmented::tests::restart_requests_only_persisted_missing_segment_suffixes`; reopened SQLite offsets request only missing suffixes, rebuild the exact file, and atomically checkpoint completed segments/job bytes. |
 | S041 | DONE | `segmented::tests::ignored_or_invalid_content_range_falls_back_without_corruption`; ignored ranges and mismatched `Content-Range` discard positional output and restart a clean single stream. |
-| S042 | TODO | — |
+| S042 | DONE | `scheduler::tests::slow_worker_fixture_steals_from_largest_remaining_segment`; an idle worker bisects the largest active remainder while preserving exact unfinished coverage. |
 | S043 | TODO | — |
 | S044 | TODO | — |
 | S045 | TODO | — |
