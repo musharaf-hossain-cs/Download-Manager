@@ -15,7 +15,10 @@ use reqwest::{StatusCode, blocking::Client, redirect::Policy};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::domain::HttpUrl;
+use crate::{
+    disk::{DiskError, write_all_with_disk_guard},
+    domain::HttpUrl,
+};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 
@@ -65,6 +68,8 @@ pub enum TransferError {
     HttpStatus(u16),
     #[error("filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("disk write failed safely: {0}")]
+    Disk(#[from] DiskError),
     #[error("response ended at {actual} bytes, expected {expected}")]
     LengthMismatch { expected: u64, actual: u64 },
 }
@@ -214,7 +219,11 @@ where
         if count == 0 {
             break;
         }
-        file.write_all(&buffer[..count])?;
+        if let Err(error) = write_all_with_disk_guard(file, &buffer[..count], downloaded_bytes) {
+            file.flush()?;
+            file.sync_all()?;
+            return Err(error.into());
+        }
         hasher.update(&buffer[..count]);
         downloaded_bytes = downloaded_bytes
             .checked_add(u64::try_from(count).expect("buffer count fits u64"))

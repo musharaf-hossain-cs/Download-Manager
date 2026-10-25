@@ -46,7 +46,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S034 | DONE | `retry::tests::retry_after_seconds_date_malformed_and_status_mapping`; delta/date parsing and 408/425/429/5xx mapping pass. |
 | S035 | DONE | `integrity::tests::sha256_correct_wrong_and_cancel_during_verify`; SHA-256 streams, matches, rejects, and cancels between chunks. |
 | S036 | DONE | `integrity::tests::user_hash_algorithm_format_and_mismatch_table`; MD5/SHA-1/SHA-256/SHA-512 raw/prefixed/case formats pass, weak hashes are labeled compatibility-only. |
-| S037 | TODO | — |
+| S037 | DONE | `disk::tests`: preflight rejects impossible capacity; injected runtime disk-full returns an actionable pause error with the exact safe offset. |
 | S038 | TODO | — |
 | S039 | TODO | — |
 | S040 | TODO | — |

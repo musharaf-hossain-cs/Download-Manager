@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+fs2 = "0.4.3"
 httpdate = "1.0.3"
 md5 = { package = "md-5", version = "0.10.6" }
 percent-encoding = "2.3.2"
