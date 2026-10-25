@@ -3,6 +3,7 @@
 pub mod adaptive;
 pub mod auth;
 pub mod checkpoint;
+pub mod credentials;
 pub mod disk;
 pub mod domain;
 pub mod fairness;
