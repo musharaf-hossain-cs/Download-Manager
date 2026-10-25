@@ -1,5 +1,9 @@
 [workspace]
-members = []
+members = [
+    "crates/download-manager-cli",
+    "crates/download-manager-engine",
+    "crates/download-manager-native-host",
+]
 resolver = "3"
 
 [workspace.package]
