@@ -1,0 +1,206 @@
+# Implementation Status
+
+- Last updated: 2026-10-25
+- Current milestone: Milestone 0 — Public repository baseline
+- Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
+- Traceability format: `docs/TRACEABILITY.md`
+
+A slice is marked `DONE` only after its focused checks and all established fast regression checks pass. Long-running or externally hosted evidence is linked in the evidence cell when applicable.
+
+| Slice | Status | Evidence |
+|---|---|---|
+| S000 | DONE | Baseline requirements, plan, README, and hygiene files in commit `31d4a56`. |
+| S001 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S002 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S003 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S004 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S005 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S006 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S007 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S008 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S009 | IN PROGRESS | Milestone 0 implementation in this working tree; final commands pending. |
+| S010 | TODO | — |
+| S011 | TODO | — |
+| S012 | TODO | — |
+| S013 | TODO | — |
+| S014 | TODO | — |
+| S015 | TODO | — |
+| S016 | TODO | — |
+| S017 | TODO | — |
+| S018 | TODO | — |
+| S019 | TODO | — |
+| S020 | TODO | — |
+| S021 | TODO | — |
+| S022 | TODO | — |
+| S023 | TODO | — |
+| S024 | TODO | — |
+| S025 | TODO | — |
+| S026 | TODO | — |
+| S027 | TODO | — |
+| S028 | TODO | — |
+| S029 | TODO | — |
+| S030 | TODO | — |
+| S031 | TODO | — |
+| S032 | TODO | — |
+| S033 | TODO | — |
+| S034 | TODO | — |
+| S035 | TODO | — |
+| S036 | TODO | — |
+| S037 | TODO | — |
+| S038 | TODO | — |
+| S039 | TODO | — |
+| S040 | TODO | — |
+| S041 | TODO | — |
+| S042 | TODO | — |
+| S043 | TODO | — |
+| S044 | TODO | — |
+| S045 | TODO | — |
+| S046 | TODO | — |
+| S047 | TODO | — |
+| S048 | TODO | — |
+| S049 | TODO | — |
+| S050 | TODO | — |
+| S051 | TODO | — |
+| S052 | TODO | — |
+| S053 | TODO | — |
+| S054 | TODO | — |
+| S055 | TODO | — |
+| S056 | TODO | — |
+| S057 | TODO | — |
+| S058 | TODO | — |
+| S059 | TODO | — |
+| S060 | TODO | — |
+| S061 | TODO | — |
+| S062 | TODO | — |
+| S063 | TODO | — |
+| S064 | TODO | — |
+| S065 | TODO | — |
+| S066 | TODO | — |
+| S067 | TODO | — |
+| S068 | TODO | — |
+| S069 | TODO | — |
+| S070 | TODO | — |
+| S071 | TODO | — |
+| S072 | TODO | — |
+| S073 | TODO | — |
+| S074 | TODO | — |
+| S075 | TODO | — |
+| S076 | TODO | — |
+| S077 | TODO | — |
+| S078 | TODO | — |
+| S079 | TODO | — |
+| S080 | TODO | — |
+| S081 | TODO | — |
+| S082 | TODO | — |
+| S083 | TODO | — |
+| S084 | TODO | — |
+| S085 | TODO | — |
+| S086 | TODO | — |
+| S087 | TODO | — |
+| S088 | TODO | — |
+| S089 | TODO | — |
+| S090 | TODO | — |
+| S091 | TODO | — |
+| S092 | TODO | — |
+| S093 | TODO | — |
+| S094 | TODO | — |
+| S095 | TODO | — |
+| S096 | TODO | — |
+| S097 | TODO | — |
+| S098 | TODO | — |
+| S099 | TODO | — |
+| S100 | TODO | — |
+| S101 | TODO | — |
+| S102 | TODO | — |
+| S103 | TODO | — |
+| S104 | TODO | — |
+| S105 | TODO | — |
+| S106 | TODO | — |
+| S107 | TODO | — |
+| S108 | TODO | — |
+| S109 | TODO | — |
+| S110 | TODO | — |
+| S111 | TODO | — |
+| S112 | TODO | — |
+| S113 | TODO | — |
+| S114 | TODO | — |
+| S115 | TODO | — |
+| S116 | TODO | — |
+| S117 | TODO | — |
+| S118 | TODO | — |
+| S119 | TODO | — |
+| S120 | TODO | — |
+| S121 | TODO | — |
+| S122 | TODO | — |
+| S123 | TODO | — |
+| S124 | TODO | — |
+| S125 | TODO | — |
+| S126 | TODO | — |
+| S127 | TODO | — |
+| S128 | TODO | — |
+| S129 | TODO | — |
+| S130 | TODO | — |
+| S131 | TODO | — |
+| S132 | TODO | — |
+| S133 | TODO | — |
+| S134 | TODO | — |
+| S135 | TODO | — |
+| S136 | TODO | — |
+| S137 | TODO | — |
+| S138 | TODO | — |
+| S139 | TODO | — |
+| S140 | TODO | — |
+| S141 | TODO | — |
+| S142 | TODO | — |
+| S143 | TODO | — |
+| S144 | TODO | — |
+| S145 | TODO | — |
+| S146 | TODO | — |
+| S147 | TODO | — |
+| S148 | TODO | — |
+| S149 | TODO | — |
+| S150 | TODO | — |
+| S151 | TODO | — |
+| S152 | TODO | — |
+| S153 | TODO | — |
+| S154 | TODO | — |
+| S155 | TODO | — |
+| S156 | TODO | — |
+| S157 | TODO | — |
+| S158 | TODO | — |
+| S159 | TODO | — |
+| S160 | TODO | — |
+| S161 | TODO | — |
+| S162 | TODO | — |
+| S163 | TODO | — |
+| S164 | TODO | — |
+| S165 | TODO | — |
+| S166 | TODO | — |
+| S167 | TODO | — |
+| S168 | TODO | — |
+| S169 | TODO | — |
+| S170 | TODO | — |
+| S171 | TODO | — |
+| S172 | TODO | — |
+| S173 | TODO | — |
+| S174 | TODO | — |
+| S175 | TODO | — |
+| S176 | TODO | — |
+| S177 | TODO | — |
+| S178 | TODO | — |
+| S179 | TODO | — |
+| S180 | TODO | — |
+| S181 | TODO | — |
+| S182 | TODO | — |
+
+## Milestone evidence log
+
+| Milestone | Command or artifact | Result |
+|---|---|---|
+| M0 | `node scripts/verify-markdown.mjs` | Pending final verification |
+| M0 | `node scripts/verify-status.mjs` | Pending final verification |
+| M0 | `powershell -File scripts/rust-quality.ps1` | Pending final verification |
+| M0 | `powershell -File scripts/typescript-quality.ps1` | Pending final verification |
+| M0 | GitHub Actions `Baseline CI` | Pending initial pushed run |
+| M0 | GitHub Actions `Security policy` | Pending initial pushed run |
+
