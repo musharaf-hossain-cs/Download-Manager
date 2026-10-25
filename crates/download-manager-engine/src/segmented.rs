@@ -44,8 +44,12 @@ pub struct SegmentedOutcome {
 
 #[derive(Debug, Error)]
 pub enum SegmentedError {
+    #[error("object length must be greater than zero")]
+    EmptyObject,
     #[error("object length must be at least two bytes")]
     ObjectTooSmall,
+    #[error("connection count must be between 1 and 32")]
+    InvalidConnectionCount,
     #[error("HTTP range request failed: {0}")]
     Request(#[from] reqwest::Error),
     #[error("range response returned status {0}")]
@@ -61,6 +65,38 @@ pub enum SegmentedError {
     Io(#[from] std::io::Error),
     #[error("range worker panicked")]
     WorkerPanicked,
+}
+
+/// Plans between one and 32 adjacent, non-empty ranges over an object.
+///
+/// Objects smaller than the requested connection count receive one worker per byte. Any remainder
+/// is distributed over the earliest ranges so range sizes differ by at most one byte.
+///
+/// # Errors
+/// Returns an error for an empty object or a connection count outside 1..=32.
+pub fn plan_fixed_ranges(
+    object_length: u64,
+    connection_count: u8,
+) -> Result<Vec<ByteRange>, SegmentedError> {
+    if object_length == 0 {
+        return Err(SegmentedError::EmptyObject);
+    }
+    if !(1..=32).contains(&connection_count) {
+        return Err(SegmentedError::InvalidConnectionCount);
+    }
+    let range_count = object_length.min(u64::from(connection_count));
+    let base_size = object_length / range_count;
+    let oversized_count = object_length % range_count;
+    let mut ranges = Vec::with_capacity(usize::from(connection_count));
+    let mut start = 0_u64;
+    for index in 0..range_count {
+        let size = base_size + u64::from(index < oversized_count);
+        let end = start + size - 1;
+        ranges.push(ByteRange { start, end });
+        start = end + 1;
+    }
+    debug_assert_eq!(start, object_length);
+    Ok(ranges)
 }
 
 #[derive(Debug, Clone)]
@@ -234,7 +270,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{ByteRange, TwoRangeDownloader};
+    use super::{ByteRange, SegmentedError, TwoRangeDownloader, plan_fixed_ranges};
     use crate::domain::HttpUrl;
 
     #[test]
@@ -274,6 +310,50 @@ mod tests {
         let mut captured = requests.lock().expect("requests").clone();
         captured.sort_by_key(|range| range.start);
         assert_eq!(captured, outcome.ranges);
+    }
+
+    #[test]
+    fn fixed_planner_covers_boundaries_small_objects_and_large_files() {
+        assert!(matches!(
+            plan_fixed_ranges(0, 1),
+            Err(SegmentedError::EmptyObject)
+        ));
+        for invalid in [0, 33, u8::MAX] {
+            assert!(matches!(
+                plan_fixed_ranges(100, invalid),
+                Err(SegmentedError::InvalidConnectionCount)
+            ));
+        }
+        assert_eq!(
+            plan_fixed_ranges(1, 32).expect("one byte"),
+            vec![ByteRange { start: 0, end: 0 }]
+        );
+        assert_eq!(
+            plan_fixed_ranges(7, 3).expect("uneven"),
+            vec![
+                ByteRange { start: 0, end: 2 },
+                ByteRange { start: 3, end: 4 },
+                ByteRange { start: 5, end: 6 }
+            ]
+        );
+
+        for length in [2, 3, 31, 32, 33, 1_048_577, 1_u64 << 40] {
+            for connections in 1..=32 {
+                let ranges = plan_fixed_ranges(length, connections).expect("valid plan");
+                assert_eq!(ranges.len() as u64, length.min(u64::from(connections)));
+                assert_eq!(ranges.first().expect("first").start, 0);
+                assert_eq!(ranges.last().expect("last").end, length - 1);
+                assert!(
+                    ranges
+                        .windows(2)
+                        .all(|pair| pair[0].end + 1 == pair[1].start)
+                );
+                let minimum = ranges.iter().map(|range| range.len()).min().expect("min");
+                let maximum = ranges.iter().map(|range| range.len()).max().expect("max");
+                assert!(maximum - minimum <= 1);
+                assert_eq!(ranges.iter().map(|range| range.len()).sum::<u64>(), length);
+            }
+        }
     }
 
     fn range_server(

@@ -48,7 +48,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S036 | DONE | `integrity::tests::user_hash_algorithm_format_and_mismatch_table`; MD5/SHA-1/SHA-256/SHA-512 raw/prefixed/case formats pass, weak hashes are labeled compatibility-only. |
 | S037 | DONE | `disk::tests`: preflight rejects impossible capacity; injected runtime disk-full returns an actionable pause error with the exact safe offset. |
 | S038 | DONE | `segmented::tests::delayed_ranges_write_without_overlap_or_gap_and_match_final_hash`; two concurrent 206 workers write adjacent positional ranges into a preallocated file and verify the final SHA-256. |
-| S039 | TODO | — |
+| S039 | DONE | `segmented::tests::fixed_planner_covers_boundaries_small_objects_and_large_files`; 1–32 balanced adjacent ranges cover tiny, uneven, and 1-TiB objects without gaps. |
 | S040 | TODO | — |
 | S041 | TODO | — |
 | S042 | TODO | — |
