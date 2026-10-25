@@ -352,6 +352,68 @@ impl Database {
         Ok(segments)
     }
 
+    /// Atomically checkpoints a complete segment map and its aggregate unique byte count.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for invalid segment maps, missing jobs, or transaction failures.
+    pub fn checkpoint_segments(
+        &mut self,
+        job_id: JobId,
+        segments: &[Segment],
+        at: UnixMillis,
+    ) -> Result<(), StorageError> {
+        let mut downloaded_bytes = 0_u64;
+        let mut previous_end = None;
+        for segment in segments {
+            segment.validate()?;
+            if segment.job_id != job_id {
+                return Err(StorageError::Corrupt(
+                    "segment belongs to a different job".to_owned(),
+                ));
+            }
+            if previous_end.is_some_and(|end| segment.start <= end) {
+                return Err(StorageError::Corrupt(
+                    "segment map overlaps or is not ordered".to_owned(),
+                ));
+            }
+            downloaded_bytes = downloaded_bytes
+                .checked_add(segment.durable_offset - segment.start)
+                .ok_or_else(|| StorageError::Corrupt("segment byte total overflow".to_owned()))?;
+            previous_end = Some(segment.end);
+        }
+
+        let transaction = self.connection.transaction()?;
+        let changed = transaction.execute(
+            "UPDATE jobs SET downloaded_bytes=?2, updated_at_ms=?3 WHERE id=?1",
+            params![job_id.to_string(), u64_to_i64(downloaded_bytes)?, at.get()],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::Corrupt(format!(
+                "job {job_id} does not exist"
+            )));
+        }
+        transaction.execute("DELETE FROM segments WHERE job_id=?1", [job_id.to_string()])?;
+        for segment in segments {
+            transaction.execute(
+                "INSERT INTO segments \
+                 (id, job_id, range_start, range_end, durable_offset, worker_state, checksum, checkpoint_at_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    segment.id.to_string(),
+                    segment.job_id.to_string(),
+                    u64_to_i64(segment.start)?,
+                    u64_to_i64(segment.end)?,
+                    u64_to_i64(segment.durable_offset)?,
+                    segment.worker_state,
+                    segment.checksum,
+                    segment.checkpoint_at.get(),
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Appends a redacted audit event and returns its durable sequence number.
     ///
     /// # Errors

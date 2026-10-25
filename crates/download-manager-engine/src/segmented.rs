@@ -13,7 +13,10 @@ use reqwest::{StatusCode, blocking::Client, header};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::domain::HttpUrl;
+use crate::{
+    domain::{HttpUrl, JobId, UnixMillis},
+    storage::{Database, StorageError},
+};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 
@@ -42,6 +45,13 @@ pub struct SegmentedOutcome {
     pub ranges: [ByteRange; 2],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeOutcome {
+    pub downloaded_bytes: u64,
+    pub sha256: String,
+    pub requested_ranges: Vec<ByteRange>,
+}
+
 #[derive(Debug, Error)]
 pub enum SegmentedError {
     #[error("object length must be greater than zero")]
@@ -63,6 +73,8 @@ pub enum SegmentedError {
     },
     #[error("filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("durable segment state failed: {0}")]
+    Storage(#[from] StorageError),
     #[error("range worker panicked")]
     WorkerPanicked,
 }
@@ -159,38 +171,68 @@ impl TwoRangeDownloader {
         ];
         debug_assert_eq!(ranges[0].end + 1, ranges[1].start);
 
-        let error = Arc::new(Mutex::new(None));
-        thread::scope(|scope| {
-            let mut workers = Vec::with_capacity(2);
-            for range in ranges {
-                let client = self.client.clone();
-                let url = url.clone();
-                let mut file = output.try_clone()?;
-                let first_error = Arc::clone(&error);
-                workers.push(scope.spawn(move || {
-                    let result = download_range(&client, &url, range, &mut file);
-                    if let Err(failure) = result {
-                        let mut slot = first_error.lock().expect("range error lock");
-                        if slot.is_none() {
-                            *slot = Some(failure);
-                        }
-                    }
-                }));
-            }
-            for worker in workers {
-                worker.join().map_err(|_| SegmentedError::WorkerPanicked)?;
-            }
-            Ok::<(), SegmentedError>(())
-        })?;
-        if let Some(failure) = error.lock().expect("range error lock").take() {
-            return Err(failure);
-        }
+        download_ranges(&self.client, url, &output, &ranges)?;
         output.sync_all()?;
         let sha256 = hash_file(temporary_path)?;
         Ok(SegmentedOutcome {
             downloaded_bytes: object_length,
             sha256,
             ranges,
+        })
+    }
+
+    /// Resumes the missing suffix of every durable segment and checkpoints completion atomically.
+    ///
+    /// # Errors
+    /// Returns an error if durable state cannot be loaded/saved or any missing range fails.
+    ///
+    /// # Panics
+    /// Panics only if an internal range worker poisons its result mutex.
+    pub fn resume_persisted(
+        &self,
+        database: &mut Database,
+        job_id: JobId,
+        url: &HttpUrl,
+        object_length: u64,
+        temporary_path: &Path,
+        at: UnixMillis,
+    ) -> Result<ResumeOutcome, SegmentedError> {
+        let mut segments = database.segments(job_id)?;
+        let requested_ranges: Vec<_> = segments
+            .iter()
+            .filter(|segment| segment.durable_offset <= segment.end)
+            .map(|segment| ByteRange {
+                start: segment.durable_offset,
+                end: segment.end,
+            })
+            .collect();
+        let output = OpenOptions::new()
+            .create(false)
+            .read(true)
+            .write(true)
+            .open(temporary_path)?;
+        if output.metadata()?.len() != object_length {
+            return Err(SegmentedError::LengthMismatch {
+                start: 0,
+                end: object_length.saturating_sub(1),
+                expected: object_length,
+                actual: output.metadata()?.len(),
+            });
+        }
+        download_ranges(&self.client, url, &output, &requested_ranges)?;
+        output.sync_all()?;
+        for segment in &mut segments {
+            if segment.durable_offset <= segment.end {
+                segment.durable_offset = segment.end + 1;
+                "completed".clone_into(&mut segment.worker_state);
+                segment.checkpoint_at = at;
+            }
+        }
+        database.checkpoint_segments(job_id, &segments, at)?;
+        Ok(ResumeOutcome {
+            downloaded_bytes: object_length,
+            sha256: hash_file(temporary_path)?,
+            requested_ranges,
         })
     }
 }
@@ -243,6 +285,41 @@ fn download_range(
     Ok(())
 }
 
+fn download_ranges(
+    client: &Client,
+    url: &HttpUrl,
+    output: &File,
+    ranges: &[ByteRange],
+) -> Result<(), SegmentedError> {
+    let error = Arc::new(Mutex::new(None));
+    thread::scope(|scope| {
+        let mut workers = Vec::with_capacity(ranges.len());
+        for &range in ranges {
+            let client = client.clone();
+            let url = url.clone();
+            let mut file = output.try_clone()?;
+            let first_error = Arc::clone(&error);
+            workers.push(scope.spawn(move || {
+                let result = download_range(&client, &url, range, &mut file);
+                if let Err(failure) = result {
+                    let mut slot = first_error.lock().expect("range error lock");
+                    if slot.is_none() {
+                        *slot = Some(failure);
+                    }
+                }
+            }));
+        }
+        for worker in workers {
+            worker.join().map_err(|_| SegmentedError::WorkerPanicked)?;
+        }
+        Ok::<(), SegmentedError>(())
+    })?;
+    if let Some(failure) = error.lock().expect("range error lock").take() {
+        return Err(failure);
+    }
+    Ok(())
+}
+
 fn hash_file(path: &Path) -> Result<String, std::io::Error> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
@@ -261,8 +338,10 @@ fn hash_file(path: &Path) -> Result<String, std::io::Error> {
 mod tests {
     use std::{
         fs,
-        io::{Read, Write},
+        fs::OpenOptions,
+        io::{Read, Seek, SeekFrom, Write},
         net::{TcpListener, TcpStream},
+        path::PathBuf,
         sync::{Arc, Mutex},
         thread,
         time::Duration,
@@ -271,14 +350,20 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{ByteRange, SegmentedError, TwoRangeDownloader, plan_fixed_ranges};
-    use crate::domain::HttpUrl;
+    use crate::{
+        domain::{
+            DownloadKind, HttpUrl, JobId, JobMetadata, Priority, Segment, SegmentId, UnixMillis,
+        },
+        state::DownloadState,
+        storage::Database,
+    };
 
     #[test]
     fn delayed_ranges_write_without_overlap_or_gap_and_match_final_hash() {
         let body: Vec<u8> = (0_u32..200_003)
             .map(|value| u8::try_from(value % 251).expect("byte"))
             .collect();
-        let (url, requests, server) = range_server(Arc::new(body.clone()));
+        let (url, requests, server) = range_server(Arc::new(body.clone()), 2);
         let directory = tempdir().expect("temp directory");
         let path = directory.path().join("segmented.part");
         let outcome = TwoRangeDownloader::new()
@@ -356,8 +441,131 @@ mod tests {
         }
     }
 
+    #[test]
+    fn restart_requests_only_persisted_missing_segment_suffixes() {
+        let body: Vec<u8> = (0_u8..100).collect();
+        let directory = tempdir().expect("temp directory");
+        let database_path = directory.path().join("state.sqlite");
+        let partial_path = directory.path().join("multi.part");
+        let job_id = JobId::new();
+        let mut database = Database::open(&database_path).expect("database");
+        database
+            .create_job(&test_job(job_id, &partial_path), None)
+            .expect("job");
+        database
+            .replace_segments(
+                job_id,
+                &[
+                    test_segment(job_id, 0, 49, 20),
+                    test_segment(job_id, 50, 99, 70),
+                ],
+            )
+            .expect("segments");
+        drop(database);
+
+        let mut partial = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&partial_path)
+            .expect("partial");
+        partial.set_len(100).expect("preallocate");
+        partial.write_all(&body[..20]).expect("first prefix");
+        partial.seek(SeekFrom::Start(50)).expect("second segment");
+        partial.write_all(&body[50..70]).expect("second prefix");
+        partial.sync_all().expect("durable prefixes");
+        drop(partial);
+
+        let (url, requests, server) = range_server(Arc::new(body.clone()), 2);
+        let mut reopened = Database::open(&database_path).expect("reopen database");
+        let outcome = TwoRangeDownloader::new()
+            .expect("downloader")
+            .resume_persisted(
+                &mut reopened,
+                job_id,
+                &HttpUrl::parse(url).expect("URL"),
+                100,
+                &partial_path,
+                timestamp(2),
+            )
+            .expect("resume");
+        server.join().expect("server");
+
+        assert_eq!(fs::read(&partial_path).expect("output"), body);
+        let mut expected = vec![
+            ByteRange { start: 20, end: 49 },
+            ByteRange { start: 70, end: 99 },
+        ];
+        let mut captured = requests.lock().expect("requests").clone();
+        captured.sort_by_key(|range| range.start);
+        expected.sort_by_key(|range| range.start);
+        assert_eq!(captured, expected);
+        assert_eq!(outcome.requested_ranges, expected);
+        assert!(
+            reopened
+                .segments(job_id)
+                .expect("stored segments")
+                .iter()
+                .all(|segment| segment.durable_offset == segment.end + 1
+                    && segment.worker_state == "completed")
+        );
+        assert_eq!(
+            reopened
+                .get_job(job_id)
+                .expect("stored job")
+                .expect("job")
+                .metadata
+                .downloaded_bytes,
+            100
+        );
+    }
+
+    fn timestamp(value: i64) -> UnixMillis {
+        UnixMillis::new(value).expect("timestamp")
+    }
+
+    fn test_job(id: JobId, destination: &std::path::Path) -> JobMetadata {
+        JobMetadata {
+            id,
+            source_url: HttpUrl::parse("https://example.test/file").expect("URL"),
+            final_url: None,
+            display_url: "https://example.test/file".to_owned(),
+            filename: "file.bin".to_owned(),
+            destination: PathBuf::from(destination),
+            state: DownloadState::Downloading,
+            kind: DownloadKind::File,
+            total_bytes: Some(100),
+            downloaded_bytes: 40,
+            category: None,
+            queue: None,
+            priority: Priority::Normal,
+            source_browser: None,
+            source_profile: None,
+            retry_count: 0,
+            error: None,
+            created_at: timestamp(1),
+            updated_at: timestamp(1),
+            completed_at: None,
+        }
+    }
+
+    fn test_segment(job_id: JobId, start: u64, end: u64, offset: u64) -> Segment {
+        Segment {
+            id: SegmentId::new(),
+            job_id,
+            start,
+            end,
+            durable_offset: offset,
+            worker_state: "paused".to_owned(),
+            checksum: None,
+            checkpoint_at: timestamp(1),
+        }
+    }
+
     fn range_server(
         body: Arc<Vec<u8>>,
+        request_count: usize,
     ) -> (String, Arc<Mutex<Vec<ByteRange>>>, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let address = listener.local_addr().expect("address");
@@ -365,7 +573,7 @@ mod tests {
         let captured = Arc::clone(&requests);
         let server = thread::spawn(move || {
             let mut workers = Vec::new();
-            for connection in listener.incoming().take(2) {
+            for connection in listener.incoming().take(request_count) {
                 let mut stream = connection.expect("accept");
                 let body = Arc::clone(&body);
                 let captured = Arc::clone(&captured);
