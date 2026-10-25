@@ -34,8 +34,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S022 | DONE | `filename::tests::filename_selection_prefers_rfc5987_then_legacy_url_and_mime`; RFC 5987 Unicode, quoted legacy, URL, and MIME fallback table passes. |
 | S023 | DONE | `filename::tests::sanitizer_rejects_traversal_ads_devices_and_control_characters` plus Unicode length-bound coverage. |
 | S024 | DONE | `transfer::tests`: known/unknown-length HTTP bodies stream to a synced temp file with monotonic progress and verified SHA-256. |
-| S025 | TODO | — |
-| S026 | TODO | — |
+| S025 | DONE | `finalize::tests::same_volume_conflict_policies_are_explicit_and_safe`; ask/overwrite/counter-rename/resume-if-same all preserve complete-file semantics. |
+| S026 | DONE | `finalize::tests`: destination-local staging is copied, synced, SHA-256 verified, renamed, and failure leaves the destination/source safe. |
 | S027 | TODO | — |
 | S028 | TODO | — |
 | S029 | TODO | — |
