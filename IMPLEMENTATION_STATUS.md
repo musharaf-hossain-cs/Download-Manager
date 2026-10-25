@@ -56,8 +56,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S044 | DONE | `network_metrics::tests::keep_alive_fixture_reports_one_handshake_and_one_reuse`; two real HTTP requests reuse one keep-alive connection and expose request/handshake/reuse counters. |
 | S045 | DONE | `adaptive::tests::shaped_fast_server_ramps_from_one_to_bounded_thirty_two`; productive saturated intervals ramp 1→2→4→8→16→32 while respecting lower configured caps. |
 | S046 | DONE | `adaptive::tests::throttle_loss_and_slow_disk_fixtures_reduce_load_and_hold_cooldown`; 429-style throttle, retry/loss, and queued disk writes halve concurrency and suppress immediate reramp. |
-| S047 | TODO | — |
-| S048 | TODO | — |
+| S047 | DONE | `limits::tests::virtual_time_global_and_job_rates_stay_within_five_percent`; hierarchical token buckets stay within ±5% at both per-job and aggregate limits. |
+| S048 | DONE | `limits::tests::global_and_per_host_caps_never_exceed_under_many_jobs`; owned permits enforce case-normalized host and aggregate connection ceilings. |
 | S049 | TODO | — |
 | S050 | TODO | — |
 | S051 | TODO | — |

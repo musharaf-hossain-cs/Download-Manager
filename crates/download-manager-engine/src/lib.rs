@@ -8,6 +8,7 @@ pub mod filename;
 pub mod finalize;
 pub mod integrity;
 pub mod ipc;
+pub mod limits;
 pub mod network_metrics;
 pub mod probe;
 pub mod recovery;
