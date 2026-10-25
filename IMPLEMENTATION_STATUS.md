@@ -1,7 +1,7 @@
 # Implementation Status
 
-- Last updated: 2026-10-25
-- Current milestone: Milestone 2 — Correct single-stream engine (next slice: S020)
+- Last updated: 2026-10-26
+- Current milestone: Milestone 3 — Segmented high-speed engine (next slice: S038)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -207,4 +207,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M1 | `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed; the GNU target was used because this machine has no MSVC linker. |
 | M1 | `pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm test` | Passed: formatting, lint, build, typecheck, and both smoke-test packages. |
 | M1 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts | Passed: no known Rust/Node vulnerability or dependency-policy failure. |
+| M2 | `cargo +1.99.1-x86_64-pc-windows-gnu test --workspace --locked` | Passed: 45 engine tests plus CLI/native-host integration tests; the child-process helper is intentionally ignored outside its 20-kill parent harness. |
+| M2 | `cargo +1.99.1-x86_64-pc-windows-gnu fmt --all -- --check`; `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed with the installed 64-bit CodeBlocks MinGW linker selected ahead of the incompatible legacy MinGW installation. |
+| M2 | `pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm test` | Passed: both TypeScript packages build/typecheck and 5 tests pass across 4 files. |
+| M2 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts | Passed: no known Rust/Node vulnerabilities; dependency sources and licenses accepted, including the HTTPS root-data `CDLA-Permissive-2.0` license. |
 

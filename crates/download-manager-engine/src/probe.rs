@@ -7,7 +7,7 @@ use reqwest::{
     blocking::{Client, Response},
     header::{
         ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG,
-        HeaderMap, LAST_MODIFIED, RANGE, WWW_AUTHENTICATE,
+        HeaderMap, LAST_MODIFIED, PROXY_AUTHENTICATE, RANGE, WWW_AUTHENTICATE,
     },
     redirect::Policy,
 };
@@ -98,7 +98,12 @@ fn result_from_response(
     used_range_get: bool,
 ) -> Result<ProbeResult, ProbeError> {
     let status = response.status();
-    if !status.is_success() {
+    if !status.is_success()
+        && !matches!(
+            status,
+            StatusCode::UNAUTHORIZED | StatusCode::PROXY_AUTHENTICATION_REQUIRED
+        )
+    {
         return Err(ProbeError::HttpStatus(status.as_u16()));
     }
     let headers = response.headers();
@@ -124,7 +129,8 @@ fn result_from_response(
         final_url: HttpUrl::parse(response.url().as_str())?,
         status: status.as_u16(),
         content_disposition: header(headers, CONTENT_DISPOSITION),
-        authentication_challenge: header(headers, WWW_AUTHENTICATE),
+        authentication_challenge: header(headers, WWW_AUTHENTICATE)
+            .or_else(|| header(headers, PROXY_AUTHENTICATE)),
         identity: RemoteIdentity {
             etag: header(headers, ETAG),
             last_modified: header(headers, LAST_MODIFIED),
@@ -231,5 +237,24 @@ mod tests {
             .probe(&HttpUrl::parse(server.url("/missing")).expect("URL"))
             .expect_err("status error");
         assert!(matches!(error, ProbeError::HttpStatus(404)));
+    }
+
+    #[test]
+    fn reports_authentication_challenge_without_downloading() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok(Vec::new())
+                .status(401)
+                .header("WWW-Authenticate", "Basic realm=\"fixture\""),
+        ]);
+        let result = HttpProbe::new()
+            .expect("client")
+            .probe(&HttpUrl::parse(server.url("/protected")).expect("URL"))
+            .expect("challenge probe");
+        assert_eq!(result.status, 401);
+        assert_eq!(
+            result.authentication_challenge.as_deref(),
+            Some("Basic realm=\"fixture\"")
+        );
+        assert_eq!(server.requests()[0].method, "HEAD");
     }
 }
