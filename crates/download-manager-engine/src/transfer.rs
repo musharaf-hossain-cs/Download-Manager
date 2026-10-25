@@ -4,6 +4,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -26,6 +30,31 @@ pub struct TransferOutcome {
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
     pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransferStatus {
+    Completed(TransferOutcome),
+    Paused {
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TransferControl {
+    pause_requested: Arc<AtomicBool>,
+}
+
+impl TransferControl {
+    pub fn request_pause(&self) {
+        self.pause_requested.store(true, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn is_pause_requested(&self) -> bool {
+        self.pause_requested.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -70,8 +99,35 @@ impl SingleStreamDownloader {
         &self,
         url: &HttpUrl,
         temporary_path: &Path,
-        mut on_progress: F,
+        on_progress: F,
     ) -> Result<TransferOutcome, TransferError>
+    where
+        F: FnMut(TransferProgress),
+    {
+        match self.download_with_control(
+            url,
+            temporary_path,
+            &TransferControl::default(),
+            on_progress,
+        )? {
+            TransferStatus::Completed(outcome) => Ok(outcome),
+            TransferStatus::Paused { .. } => unreachable!("private transfer control cannot pause"),
+        }
+    }
+
+    /// Streams to a temporary file until complete or until pause is requested.
+    ///
+    /// A paused result is returned only after all accepted bytes are flushed and synced.
+    ///
+    /// # Errors
+    /// Returns an error for HTTP failures, local I/O failures, or a truncated known-length body.
+    pub fn download_with_control<F>(
+        &self,
+        url: &HttpUrl,
+        temporary_path: &Path,
+        control: &TransferControl,
+        mut on_progress: F,
+    ) -> Result<TransferStatus, TransferError>
     where
         F: FnMut(TransferProgress),
     {
@@ -90,23 +146,34 @@ impl SingleStreamDownloader {
             .truncate(true)
             .write(true)
             .open(temporary_path)?;
-        let (downloaded_bytes, sha256) =
-            stream_response(&mut response, &mut file, total_bytes, &mut on_progress)?;
+        let stream = stream_response(
+            &mut response,
+            &mut file,
+            total_bytes,
+            control,
+            &mut on_progress,
+        )?;
         file.flush()?;
         file.sync_all()?;
+        if stream.paused {
+            return Ok(TransferStatus::Paused {
+                downloaded_bytes: stream.downloaded_bytes,
+                total_bytes,
+            });
+        }
         if let Some(expected) = total_bytes
-            && downloaded_bytes != expected
+            && stream.downloaded_bytes != expected
         {
             return Err(TransferError::LengthMismatch {
                 expected,
-                actual: downloaded_bytes,
+                actual: stream.downloaded_bytes,
             });
         }
-        Ok(TransferOutcome {
-            downloaded_bytes,
+        Ok(TransferStatus::Completed(TransferOutcome {
+            downloaded_bytes: stream.downloaded_bytes,
             total_bytes,
-            sha256,
-        })
+            sha256: stream.sha256,
+        }))
     }
 }
 
@@ -116,12 +183,19 @@ impl Default for SingleStreamDownloader {
     }
 }
 
+struct StreamResult {
+    downloaded_bytes: u64,
+    sha256: String,
+    paused: bool,
+}
+
 fn stream_response<F>(
     response: &mut impl Read,
     file: &mut File,
     total_bytes: Option<u64>,
+    control: &TransferControl,
     on_progress: &mut F,
-) -> Result<(u64, String), TransferError>
+) -> Result<StreamResult, TransferError>
 where
     F: FnMut(TransferProgress),
 {
@@ -129,6 +203,13 @@ where
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; BUFFER_SIZE];
     loop {
+        if control.is_pause_requested() {
+            return Ok(StreamResult {
+                downloaded_bytes,
+                sha256: format!("{:x}", hasher.finalize()),
+                paused: true,
+            });
+        }
         let count = response.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -143,7 +224,11 @@ where
             total_bytes,
         });
     }
-    Ok((downloaded_bytes, format!("{:x}", hasher.finalize())))
+    Ok(StreamResult {
+        downloaded_bytes,
+        sha256: format!("{:x}", hasher.finalize()),
+        paused: false,
+    })
 }
 
 #[cfg(test)]
@@ -152,7 +237,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{SingleStreamDownloader, TransferProgress};
+    use super::{SingleStreamDownloader, TransferControl, TransferProgress, TransferStatus};
     use crate::{
         domain::HttpUrl,
         test_support::{Fixture, FixtureServer},
@@ -211,5 +296,41 @@ mod tests {
         assert_eq!(outcome.downloaded_bytes, body.len() as u64);
         assert_eq!(outcome.total_bytes, None);
         assert!(progress.iter().all(|event| event.total_bytes.is_none()));
+    }
+
+    #[test]
+    fn pause_stops_the_stream_at_an_exact_synced_offset() {
+        let body = vec![0x33; 400_000];
+        let server = FixtureServer::start(vec![Fixture::ok(body.clone())]);
+        let directory = tempdir().expect("temp directory");
+        let path = directory.path().join("paused.part");
+        let control = TransferControl::default();
+        let callback_control = control.clone();
+        let status = SingleStreamDownloader::new()
+            .expect("downloader")
+            .download_with_control(
+                &HttpUrl::parse(server.url("/pause")).expect("URL"),
+                &path,
+                &control,
+                move |_| callback_control.request_pause(),
+            )
+            .expect("pause");
+        let TransferStatus::Paused {
+            downloaded_bytes,
+            total_bytes,
+        } = status
+        else {
+            panic!("expected paused transfer");
+        };
+        assert!(downloaded_bytes > 0 && downloaded_bytes < body.len() as u64);
+        assert_eq!(total_bytes, Some(body.len() as u64));
+        assert_eq!(
+            fs::metadata(&path).expect("temp metadata").len(),
+            downloaded_bytes
+        );
+        assert_eq!(
+            fs::read(&path).expect("temp body"),
+            body[..usize::try_from(downloaded_bytes).expect("offset")]
+        );
     }
 }

@@ -441,6 +441,63 @@ impl Database {
         Ok(reduced)
     }
 
+    /// Atomically acknowledges a graceful single-stream pause and its exact durable offset.
+    ///
+    /// # Errors
+    /// Returns an error unless the job is pausing, has exactly one segment, and all values persist.
+    pub fn checkpoint_single_stream_pause(
+        &mut self,
+        job_id: JobId,
+        durable_offset: u64,
+        at: UnixMillis,
+    ) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        let current_text: String = transaction.query_row(
+            "SELECT state FROM jobs WHERE id=?1",
+            [job_id.to_string()],
+            |row| row.get(0),
+        )?;
+        let current = parse_state(&current_text)?;
+        reduce_state(current, DownloadState::Paused)?;
+        let changed = transaction.execute(
+            "UPDATE segments SET durable_offset=?2, worker_state='paused', checkpoint_at_ms=?3 \
+             WHERE job_id=?1",
+            params![job_id.to_string(), u64_to_i64(durable_offset)?, at.get()],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Corrupt(format!(
+                "single-stream pause expected one segment, found {changed}"
+            )));
+        }
+        transaction.execute(
+            "UPDATE jobs SET state='paused', downloaded_bytes=?2, updated_at_ms=?3 WHERE id=?1",
+            params![job_id.to_string(), u64_to_i64(durable_offset)?, at.get()],
+        )?;
+        let event = DownloadEvent::StateChanged {
+            transition: StateTransition {
+                job_id,
+                from: current,
+                to: DownloadState::Paused,
+                at,
+                reason: Some(format!("paused at durable offset {durable_offset}")),
+            },
+        };
+        transaction.execute(
+            "INSERT INTO event_log \
+             (id, job_id, timestamp_ms, component, severity, event_type, redacted_detail) \
+             VALUES (?1, ?2, ?3, 'engine', 'info', 'state_changed', ?4)",
+            params![
+                EventId::new().to_string(),
+                job_id.to_string(),
+                at.get(),
+                serde_json::to_string(&event)
+                    .map_err(|error| StorageError::Corrupt(error.to_string()))?,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Removes only completed history and old events belonging to completed jobs.
     ///
     /// # Errors
@@ -989,6 +1046,47 @@ mod tests {
                 .transition_job(metadata.id, DownloadState::Completed, timestamp(3), None)
                 .is_err()
         );
+        assert_eq!(database.events(metadata.id).expect("events").len(), 1);
+    }
+
+    #[test]
+    fn graceful_pause_persists_exact_single_offset_atomically() {
+        let mut database = Database::open_in_memory().expect("database");
+        let mut metadata = job(DownloadState::Pausing, 1);
+        metadata.total_bytes = Some(1_000);
+        database.create_job(&metadata, None).expect("job");
+        database
+            .replace_segments(
+                metadata.id,
+                &[Segment {
+                    id: SegmentId::new(),
+                    job_id: metadata.id,
+                    start: 0,
+                    end: 999,
+                    durable_offset: 0,
+                    worker_state: "active".to_owned(),
+                    checksum: None,
+                    checkpoint_at: timestamp(1),
+                }],
+            )
+            .expect("segment");
+        database
+            .checkpoint_single_stream_pause(metadata.id, 417, timestamp(2))
+            .expect("pause checkpoint");
+        let job = database
+            .get_job(metadata.id)
+            .expect("read job")
+            .expect("job");
+        assert_eq!(job.metadata.state, DownloadState::Paused);
+        assert_eq!(job.metadata.downloaded_bytes, 417);
+        let segment = database
+            .segments(metadata.id)
+            .expect("segments")
+            .into_iter()
+            .next()
+            .expect("segment");
+        assert_eq!(segment.durable_offset, 417);
+        assert_eq!(segment.worker_state, "paused");
         assert_eq!(database.events(metadata.id).expect("events").len(), 1);
     }
 
