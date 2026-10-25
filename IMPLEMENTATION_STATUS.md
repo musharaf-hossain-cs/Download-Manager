@@ -61,7 +61,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S049 | DONE | `fairness::tests::priority_has_weighted_advantage_without_starvation`; deficit round robin produces exact 4:2:1 service while bounding low-priority wait. |
 | S050 | DONE | `network_metrics::tests::forced_retry_reports_unique_wire_and_retry_bytes_separately`; overlapping retry ranges increase wire/retry totals without double-counting unique coverage. |
 | S051 | DONE | `proxy::tests`: local manual proxy routing and exact/suffix/wildcard/`<local>` bypass matrix pass; the full suite also repeats multi-range resume with independent Windows file handles. |
-| S052 | TODO | — |
+| S052 | DONE | `auth::tests::basic_and_digest_succeed_and_bad_credentials_do_not_loop`; Basic and RFC-style MD5 Digest authenticate on one retry, while rejection stops after two total requests. |
 | S053 | TODO | — |
 | S054 | TODO | — |
 | S055 | TODO | — |
