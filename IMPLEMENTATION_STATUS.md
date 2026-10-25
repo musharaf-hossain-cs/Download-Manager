@@ -44,8 +44,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S032 | DONE | `recovery::tests::twenty_seeded_process_kills_recover_without_corrupt_completion`; 20 real child processes are force-killed, reconciled, completed, and byte-verified. |
 | S033 | DONE | `retry::tests::deterministic_backoff_has_bounded_jitter_and_budget`; seeded exponential jitter is bounded, capped, and exhausts deterministically. |
 | S034 | DONE | `retry::tests::retry_after_seconds_date_malformed_and_status_mapping`; delta/date parsing and 408/425/429/5xx mapping pass. |
-| S035 | TODO | — |
-| S036 | TODO | — |
+| S035 | DONE | `integrity::tests::sha256_correct_wrong_and_cancel_during_verify`; SHA-256 streams, matches, rejects, and cancels between chunks. |
+| S036 | DONE | `integrity::tests::user_hash_algorithm_format_and_mismatch_table`; MD5/SHA-1/SHA-256/SHA-512 raw/prefixed/case formats pass, weak hashes are labeled compatibility-only. |
 | S037 | TODO | — |
 | S038 | TODO | — |
 | S039 | TODO | — |

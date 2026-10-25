@@ -4,6 +4,7 @@ pub mod checkpoint;
 pub mod domain;
 pub mod filename;
 pub mod finalize;
+pub mod integrity;
 pub mod ipc;
 pub mod probe;
 pub mod recovery;
