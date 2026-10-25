@@ -1,5 +1,10 @@
 #![doc = "Core transfer-engine boundary for Download Manager."]
 
+pub mod domain;
+pub mod ipc;
+pub mod state;
+pub mod storage;
+
 /// The engine version, kept in sync with the Cargo package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

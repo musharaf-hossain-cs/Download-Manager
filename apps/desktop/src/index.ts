@@ -7,3 +7,5 @@ export const desktopIdentity: ComponentIdentity = Object.freeze({
   name: "download-manager-desktop",
   version: "0.1.0",
 });
+
+export * from "./protocol.js";

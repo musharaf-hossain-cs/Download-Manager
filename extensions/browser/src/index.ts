@@ -11,3 +11,5 @@ export const extensionIdentity: ExtensionIdentity = Object.freeze({
   supportedBrowsers: Object.freeze(["chromium", "firefox"] as const),
   version: "0.1.0",
 });
+
+export * from "./protocol.js";

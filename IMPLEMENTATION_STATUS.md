@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-25
-- Current milestone: Milestone 1 — Domain and durable state (next slice: S010)
+- Current milestone: Milestone 2 — Correct single-stream engine (next slice: S020)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -19,16 +19,16 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S007 | DONE | TypeScript format/lint/build/type/test gate in `52cca64`; seeded formatting failure rejected and restored. |
 | S008 | DONE | Windows [Baseline CI run 40199752939](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) passed all three jobs. |
 | S009 | DONE | [Security policy run 40199752905](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752905) passed advisories, licenses, sources, and full-history secret scan. |
-| S010 | TODO | — |
-| S011 | TODO | — |
-| S012 | TODO | — |
-| S013 | TODO | — |
-| S014 | TODO | — |
-| S015 | TODO | — |
-| S016 | TODO | — |
-| S017 | TODO | — |
-| S018 | TODO | — |
-| S019 | TODO | — |
+| S010 | DONE | `domain::tests`: stable UUID serialization, URL/timestamp/range invalid-value rejection. |
+| S011 | DONE | `state::tests::state_event_json_is_stable`; canonical state/event JSON snapshot. |
+| S012 | DONE | `state::tests::transition_table_is_exhaustive`; every state pair accepted or rejected by the reducer table. |
+| S013 | DONE | `storage::tests::database_creates_reopens_and_reports_schema_version`; configured SQLite create/reopen at schema v2. |
+| S014 | DONE | `storage::tests::job_and_remote_identity_crud_round_trip` and `job_and_identity_insert_rolls_back_as_one_transaction`. |
+| S015 | DONE | `storage::tests::segments_enforce_ranges_and_events_are_ordered`; SQL constraints and durable sequence ordering. |
+| S016 | DONE | `storage::tests::failed_migration_rolls_back_and_preserves_backup`; failed DDL rolls back and backup/original remain usable. |
+| S017 | DONE | `storage::tests::retention_never_age_deletes_active_or_partial_jobs`; only completed history is age-deleted. |
+| S018 | DONE | Rust `ipc::tests::ui_schema_has_a_stable_snapshot` + rejection tests and desktop `protocol.test.ts` cross-language snapshot. |
+| S019 | DONE | Rust oversize/URL/nonce/replay rejection tests and extension `protocol.test.ts` encoding/validation tests. |
 | S020 | TODO | — |
 | S021 | TODO | — |
 | S022 | TODO | — |
@@ -203,4 +203,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M0 | `powershell -File scripts/typescript-quality.ps1` | Passed: format, lint, build, typecheck, and two smoke tests. |
 | M0 | [GitHub Actions `Baseline CI`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) | Passed on Windows: documentation, Rust, and TypeScript jobs. |
 | M0 | [GitHub Actions `Security policy`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752905) | Passed on Windows: dependency/license audit and full-history secret scan. |
+| M1 | `cargo +1.99.1-x86_64-pc-windows-gnu test --workspace --locked` | Passed: 19 tests across engine, CLI, and native host; domain/state/storage/IPC cases included. |
+| M1 | `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed; the GNU target was used because this machine has no MSVC linker. |
+| M1 | `pnpm run format:check && pnpm run lint && pnpm run build && pnpm run typecheck && pnpm test` | Passed: formatting, lint, build, typecheck, and both smoke-test packages. |
+| M1 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts | Passed: no known Rust/Node vulnerability or dependency-policy failure. |
 
