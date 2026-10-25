@@ -1,5 +1,6 @@
 #![doc = "Core transfer-engine boundary for Download Manager."]
 
+pub mod adaptive;
 pub mod checkpoint;
 pub mod disk;
 pub mod domain;

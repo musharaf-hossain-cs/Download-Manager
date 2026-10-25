@@ -54,7 +54,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S042 | DONE | `scheduler::tests::slow_worker_fixture_steals_from_largest_remaining_segment`; an idle worker bisects the largest active remainder while preserving exact unfinished coverage. |
 | S043 | DONE | `scheduler::tests::minimum_split_size_prevents_tiny_segments_and_records_idle_workers`; split tails remain at least 128 bytes and satisfied/unsatisfied idle events are counted. |
 | S044 | DONE | `network_metrics::tests::keep_alive_fixture_reports_one_handshake_and_one_reuse`; two real HTTP requests reuse one keep-alive connection and expose request/handshake/reuse counters. |
-| S045 | TODO | — |
+| S045 | DONE | `adaptive::tests::shaped_fast_server_ramps_from_one_to_bounded_thirty_two`; productive saturated intervals ramp 1→2→4→8→16→32 while respecting lower configured caps. |
 | S046 | TODO | — |
 | S047 | TODO | — |
 | S048 | TODO | — |
