@@ -2,6 +2,7 @@
 
 pub mod domain;
 pub mod ipc;
+pub mod probe;
 pub mod state;
 pub mod storage;
 

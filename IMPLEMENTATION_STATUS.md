@@ -30,7 +30,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S018 | DONE | Rust `ipc::tests::ui_schema_has_a_stable_snapshot` + rejection tests and desktop `protocol.test.ts` cross-language snapshot. |
 | S019 | DONE | Rust oversize/URL/nonce/replay rejection tests and extension `protocol.test.ts` encoding/validation tests. |
 | S020 | DONE | `test_support::tests::programmable_server_serves_status_headers_body_and_delay`; local fixture controls status, headers, body, delay, and captures requests. |
-| S021 | TODO | — |
+| S021 | DONE | `probe::tests`: HEAD denial falls back to a one-byte ranged GET; redirects, unknown length, range identity, and failure status are covered. |
 | S022 | TODO | — |
 | S023 | TODO | — |
 | S024 | TODO | — |

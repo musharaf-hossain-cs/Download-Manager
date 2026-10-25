@@ -95,6 +95,9 @@ impl FixtureServer {
                 }
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        stream
+                            .set_nonblocking(false)
+                            .expect("make fixture connection blocking");
                         let Some(fixture) = fixtures.next() else {
                             break;
                         };
@@ -178,7 +181,8 @@ fn write_response(stream: &mut TcpStream, fixture: &Fixture, is_head: bool) {
         reason(fixture.status)
     );
     for (name, value) in &fixture.headers {
-        response.push_str(&format!("{name}: {value}\r\n"));
+        std::fmt::Write::write_fmt(&mut response, format_args!("{name}: {value}\r\n"))
+            .expect("write fixture header");
     }
     if fixture.include_content_length
         && !fixture
@@ -186,7 +190,11 @@ fn write_response(stream: &mut TcpStream, fixture: &Fixture, is_head: bool) {
             .iter()
             .any(|(name, _)| name.eq_ignore_ascii_case("content-length"))
     {
-        response.push_str(&format!("Content-Length: {}\r\n", fixture.body.len()));
+        std::fmt::Write::write_fmt(
+            &mut response,
+            format_args!("Content-Length: {}\r\n", fixture.body.len()),
+        )
+        .expect("write fixture content length");
     }
     response.push_str("\r\n");
     stream
