@@ -4,6 +4,7 @@ pub mod adaptive;
 pub mod checkpoint;
 pub mod disk;
 pub mod domain;
+pub mod fairness;
 pub mod filename;
 pub mod finalize;
 pub mod integrity;

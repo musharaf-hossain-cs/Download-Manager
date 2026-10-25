@@ -58,7 +58,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S046 | DONE | `adaptive::tests::throttle_loss_and_slow_disk_fixtures_reduce_load_and_hold_cooldown`; 429-style throttle, retry/loss, and queued disk writes halve concurrency and suppress immediate reramp. |
 | S047 | DONE | `limits::tests::virtual_time_global_and_job_rates_stay_within_five_percent`; hierarchical token buckets stay within ±5% at both per-job and aggregate limits. |
 | S048 | DONE | `limits::tests::global_and_per_host_caps_never_exceed_under_many_jobs`; owned permits enforce case-normalized host and aggregate connection ceilings. |
-| S049 | TODO | — |
+| S049 | DONE | `fairness::tests::priority_has_weighted_advantage_without_starvation`; deficit round robin produces exact 4:2:1 service while bounding low-priority wait. |
 | S050 | TODO | — |
 | S051 | TODO | — |
 | S052 | TODO | — |
