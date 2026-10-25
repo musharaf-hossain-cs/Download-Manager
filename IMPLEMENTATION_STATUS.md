@@ -59,7 +59,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S047 | DONE | `limits::tests::virtual_time_global_and_job_rates_stay_within_five_percent`; hierarchical token buckets stay within ±5% at both per-job and aggregate limits. |
 | S048 | DONE | `limits::tests::global_and_per_host_caps_never_exceed_under_many_jobs`; owned permits enforce case-normalized host and aggregate connection ceilings. |
 | S049 | DONE | `fairness::tests::priority_has_weighted_advantage_without_starvation`; deficit round robin produces exact 4:2:1 service while bounding low-priority wait. |
-| S050 | TODO | — |
+| S050 | DONE | `network_metrics::tests::forced_retry_reports_unique_wire_and_retry_bytes_separately`; overlapping retry ranges increase wire/retry totals without double-counting unique coverage. |
 | S051 | TODO | — |
 | S052 | TODO | — |
 | S053 | TODO | — |

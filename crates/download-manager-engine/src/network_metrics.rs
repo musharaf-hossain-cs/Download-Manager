@@ -5,6 +5,54 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::segmented::ByteRange;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ByteSnapshot {
+    pub unique_bytes: u64,
+    pub wire_bytes: u64,
+    pub retry_bytes: u64,
+}
+
+/// Counts network traffic separately from unique object coverage.
+#[derive(Debug, Clone, Default)]
+pub struct ByteAccounting {
+    covered: Vec<ByteRange>,
+    snapshot: ByteSnapshot,
+}
+
+impl ByteAccounting {
+    /// Records one fully received inclusive range, optionally attributed to a retry.
+    pub fn record_range(&mut self, range: ByteRange, is_retry: bool) {
+        if range.is_empty() {
+            return;
+        }
+        self.snapshot.wire_bytes = self.snapshot.wire_bytes.saturating_add(range.len());
+        if is_retry {
+            self.snapshot.retry_bytes = self.snapshot.retry_bytes.saturating_add(range.len());
+        }
+        self.covered.push(range);
+        self.covered.sort_by_key(|candidate| candidate.start);
+        let mut merged: Vec<ByteRange> = Vec::with_capacity(self.covered.len());
+        for candidate in self.covered.drain(..) {
+            if let Some(last) = merged.last_mut()
+                && candidate.start <= last.end.saturating_add(1)
+            {
+                last.end = last.end.max(candidate.end);
+                continue;
+            }
+            merged.push(candidate);
+        }
+        self.snapshot.unique_bytes = merged.iter().map(|candidate| candidate.len()).sum();
+        self.covered = merged;
+    }
+
+    #[must_use]
+    pub const fn snapshot(&self) -> ByteSnapshot {
+        self.snapshot
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ConnectionSnapshot {
     pub requests: u64,
@@ -60,7 +108,30 @@ mod tests {
 
     use reqwest::blocking::Client;
 
-    use super::{ConnectionMetricRecorder, ConnectionSnapshot};
+    use super::{ByteAccounting, ByteSnapshot, ConnectionMetricRecorder, ConnectionSnapshot};
+    use crate::segmented::ByteRange;
+
+    #[test]
+    fn forced_retry_reports_unique_wire_and_retry_bytes_separately() {
+        let mut accounting = ByteAccounting::default();
+        accounting.record_range(ByteRange { start: 0, end: 99 }, false);
+        accounting.record_range(ByteRange { start: 50, end: 99 }, true);
+        accounting.record_range(
+            ByteRange {
+                start: 100,
+                end: 149,
+            },
+            false,
+        );
+        assert_eq!(
+            accounting.snapshot(),
+            ByteSnapshot {
+                unique_bytes: 150,
+                wire_bytes: 200,
+                retry_bytes: 50,
+            }
+        );
+    }
 
     #[test]
     fn keep_alive_fixture_reports_one_handshake_and_one_reuse() {
