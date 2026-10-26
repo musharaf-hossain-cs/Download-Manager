@@ -102,7 +102,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S090 | DONE | Extension `all-links.test.ts` verifies direct/relative HTTP(S) normalization, fragment-insensitive stable deduplication, the 128-item native-batch cap, exact scan bounds, and 80 cooperative yields while processing a 20,000-candidate large-DOM fixture; full TypeScript and documentation gates pass. |
 | S091 | DONE | Extension `selected-links.test.ts` verifies selection-only collection, normalized duplicate removal across overlapping ranges, and empty-selection behavior; full extension tests and typecheck pass. |
 | S092 | DONE | Desktop `batch-preview-dialog.test.ts` verifies URL/filename/type/size/source preview, search and MIME filtering, visible selection, editing, queue choice, and that only checked normalized HTTP(S) URLs reach the job port; full TypeScript and documentation gates pass. |
-| S093 | TODO | — |
+| S093 | DONE | Extension `browser-profile.test.ts` verifies browser/profile composite identity, two-profile metadata isolation, cross-browser separation, and invalid identity rejection; full TypeScript gates pass. |
 | S094 | TODO | — |
 | S095 | TODO | — |
 | S096 | TODO | — |
