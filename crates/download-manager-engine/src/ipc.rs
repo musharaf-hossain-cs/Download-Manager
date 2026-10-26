@@ -1,6 +1,9 @@
 //! Versioned and size-bounded schemas for local UI and browser IPC.
 
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -63,6 +66,10 @@ impl<T> Envelope<T> {
 pub enum UiRequest {
     Health,
     ListJobs,
+    ProbeUrl {
+        source_url: HttpUrl,
+        destination: PathBuf,
+    },
     AddJob {
         source_url: HttpUrl,
         filename: Option<String>,
@@ -77,10 +84,26 @@ pub enum UiRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UiResponse {
-    Health { engine_version: String },
-    Accepted { job_id: JobId },
-    Jobs { jobs: Vec<JobMetadata> },
-    Rejected { code: String, message: String },
+    Health {
+        engine_version: String,
+    },
+    Accepted {
+        job_id: JobId,
+    },
+    Jobs {
+        jobs: Vec<JobMetadata>,
+    },
+    UrlProbe {
+        final_url: HttpUrl,
+        filename: String,
+        destination: PathBuf,
+        total_bytes: Option<u64>,
+        mime_type: Option<String>,
+    },
+    Rejected {
+        code: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,6 +241,7 @@ fn reject_unknown_ui_fields(bytes: &[u8]) -> Result<(), ProtocolError> {
         .ok_or_else(|| ProtocolError::UnknownField("missing payload".to_owned()))?;
     match payload.get("type").and_then(serde_json::Value::as_str) {
         Some("health" | "list_jobs") => validate_object_keys(payload, &["type"]),
+        Some("probe_url") => validate_object_keys(payload, &["type", "source_url", "destination"]),
         Some("add_job") => {
             validate_object_keys(payload, &["type", "source_url", "filename", "start_now"])
         }

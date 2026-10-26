@@ -9,6 +9,7 @@ export const desktopIdentity: ComponentIdentity = Object.freeze({
 });
 
 export * from "./protocol.js";
+export * from "./add-url-dialog.js";
 export * from "./desktop-shell.js";
 export * from "./download-list.js";
 export * from "./engine-client.js";

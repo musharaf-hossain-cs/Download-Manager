@@ -46,9 +46,22 @@ export interface DownloadJob {
   readonly completed_at: number | null;
 }
 
+export interface UrlProbe {
+  readonly final_url: string;
+  readonly filename: string;
+  readonly destination: string;
+  readonly total_bytes: number | null;
+  readonly mime_type: string | null;
+}
+
 export type UiRequest =
   | { readonly type: "health" }
   | { readonly type: "list_jobs" }
+  | {
+      readonly type: "probe_url";
+      readonly source_url: string;
+      readonly destination: string;
+    }
   | {
       readonly type: "add_job";
       readonly source_url: string;
@@ -71,6 +84,7 @@ export type UiResponse =
   | { readonly type: "health"; readonly engine_version: string }
   | { readonly type: "accepted"; readonly job_id: string }
   | { readonly type: "jobs"; readonly jobs: readonly DownloadJob[] }
+  | ({ readonly type: "url_probe" } & UrlProbe)
   | {
       readonly type: "rejected";
       readonly code: string;
@@ -261,6 +275,25 @@ function parseResponse(value: unknown): UiResponse {
         hasExactKeys(value, ["type", "jobs"]) &&
         Array.isArray(value.jobs) &&
         value.jobs.every(isDownloadJob)
+      ) {
+        return value as unknown as UiResponse;
+      }
+      break;
+    case "url_probe":
+      if (
+        hasExactKeys(value, [
+          "type",
+          "final_url",
+          "filename",
+          "destination",
+          "total_bytes",
+          "mime_type",
+        ]) &&
+        typeof value.final_url === "string" &&
+        typeof value.filename === "string" &&
+        typeof value.destination === "string" &&
+        isNullableNonNegativeNumber(value.total_bytes) &&
+        isNullableString(value.mime_type)
       ) {
         return value as unknown as UiResponse;
       }

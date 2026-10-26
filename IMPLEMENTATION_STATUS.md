@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S061)
+- Current milestone: Milestone 4 — Desktop application (next slice: S062)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -70,7 +70,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S058 | DONE | `desktop::tests::health_and_persisted_jobs_are_dispatched_over_typed_ipc` plus desktop `download-list.test.ts` loading/ready/empty/error states pass. |
 | S059 | DONE | Desktop `progress.test.ts` proves 20,000 synthetic events schedule one 250 ms latest-value batch and remain independent per job. |
 | S060 | DONE | Desktop `virtual-list.test.ts` verifies stable sorting, immutable source order, bounded viewport rows, and the 10,000-row 250 ms budget. |
-| S061 | TODO | — |
+| S061 | DONE | Desktop `add-url-dialog.test.ts` plus engine `desktop::tests::url_probe_*` cover valid/invalid HTTP(S), Unicode filenames and paths, metadata preview, and inaccessible destinations; full Rust, TypeScript, and documentation gates pass. |
 | S062 | TODO | — |
 | S063 | TODO | — |
 | S064 | TODO | — |

@@ -7,6 +7,7 @@ import {
   type UiRequest,
   type UiRequestEnvelope,
   type UiResponse,
+  type UrlProbe,
 } from "./protocol.js";
 
 export interface EngineTransport {
@@ -21,6 +22,7 @@ export interface EngineLauncher {
 
 export interface EngineApi {
   listJobs(): Promise<readonly DownloadJob[]>;
+  probeUrl(sourceUrl: string, destination: string): Promise<UrlProbe>;
   subscribeToEvents(listener: (event: DownloadEvent) => void): () => void;
 }
 
@@ -76,6 +78,23 @@ export class EngineClient implements EngineApi {
       );
     }
     return response.jobs;
+  }
+
+  public async probeUrl(
+    sourceUrl: string,
+    destination: string,
+  ): Promise<UrlProbe> {
+    const response = await this.#request({
+      type: "probe_url",
+      source_url: sourceUrl,
+      destination,
+    });
+    if (response.type !== "url_probe") {
+      throw new ProtocolViolationError(
+        "probe request received a non-probe response",
+      );
+    }
+    return response;
   }
 
   public subscribeToEvents(
