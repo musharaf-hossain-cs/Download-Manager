@@ -19,4 +19,5 @@ export * from "./history.js";
 export * from "./progress.js";
 export * from "./segment-detail.js";
 export * from "./settings.js";
+export * from "./tray.js";
 export * from "./virtual-list.js";
