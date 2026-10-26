@@ -46,7 +46,7 @@ export interface FirefoxLinkInterceptionOptions {
   readonly onFallback?: (
     details: FirefoxFallbackDetails,
   ) => void | Promise<void>;
-  readonly onError?: (error: unknown) => void;
+  readonly onError: (error: unknown) => void;
 }
 
 /** Adapts Firefox download events to the shared acknowledged handoff contract. */
@@ -63,7 +63,7 @@ export class FirefoxLinkInterception {
 
   public constructor(options: FirefoxLinkInterceptionOptions) {
     this.#downloads = options.downloads;
-    this.#onError = options.onError ?? (() => undefined);
+    this.#onError = options.onError;
     this.#controller = new LinkHandoffController(
       options.health,
       options.messenger,

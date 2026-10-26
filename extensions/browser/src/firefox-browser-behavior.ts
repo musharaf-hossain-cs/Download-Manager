@@ -52,6 +52,7 @@ export interface FirefoxContextMenusApi {
     readonly title: string;
     readonly contexts: readonly ("link" | "page" | "selection")[];
   }): void;
+  remove(menuItemId: string): Promise<void>;
   readonly onClicked: {
     addListener(
       listener: (click: FirefoxMenuClick, tab: FirefoxMenuTab) => void,
@@ -148,10 +149,17 @@ export class FirefoxBrowserBehavior {
     this.#installed = true;
   }
 
-  public uninstall(): void {
+  public async uninstall(): Promise<void> {
     if (!this.#installed) return;
     this.#options.interception.uninstall();
     this.#options.contextMenus.onClicked.removeListener(this.#menuListener);
+    await Promise.all(
+      [
+        SINGLE_LINK_CONTEXT_MENU_ID,
+        FIREFOX_ALL_LINKS_MENU_ID,
+        FIREFOX_SELECTED_LINKS_MENU_ID,
+      ].map((menuItemId) => this.#options.contextMenus.remove(menuItemId)),
+    );
     this.#installed = false;
   }
 
@@ -191,7 +199,7 @@ export class FirefoxBrowserBehavior {
       url: item.url,
       suggestedFilename: item.filename ?? null,
       mimeType: item.mime ?? null,
-      sizeBytes: item.totalBytes ?? null,
+      sizeBytes: item.totalBytes === -1 ? null : (item.totalBytes ?? null),
       modifiers: this.#options.captureModifiers?.(item) ?? NO_MODIFIERS,
     }).capture;
   }

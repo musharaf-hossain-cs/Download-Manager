@@ -45,6 +45,22 @@ export type LinkHandoffResult =
     }
   | { readonly kind: "fallback"; readonly reason: BrowserFallbackReason };
 
+/** Reports a native-accepted job whose duplicate browser transfer could not be cancelled. */
+export class BrowserCancellationError extends Error {
+  public override readonly name = "BrowserCancellationError";
+
+  public constructor(
+    public readonly downloadId: number,
+    public readonly jobId: string,
+    cause: unknown,
+  ) {
+    super(
+      `native job ${jobId} was accepted, but browser download ${String(downloadId)} could not be cancelled`,
+      { cause },
+    );
+  }
+}
+
 /** Sends one eligible browser download and cancels it only after native ACK. */
 export class LinkHandoffController {
   readonly #handledDownloads = new Set<number>();
@@ -112,7 +128,11 @@ export class LinkHandoffController {
       return this.#fallback(candidate, "invalid_response");
     }
 
-    await this.browser.cancel(candidate.downloadId);
+    try {
+      await this.browser.cancel(candidate.downloadId);
+    } catch (error) {
+      throw new BrowserCancellationError(candidate.downloadId, jobId, error);
+    }
     return { kind: "accepted", jobId };
   }
 

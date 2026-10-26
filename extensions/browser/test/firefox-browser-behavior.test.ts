@@ -98,11 +98,15 @@ function downloadsFixture() {
 
 function menuFixture() {
   const created: unknown[] = [];
+  const removed: string[] = [];
   let listener:
     ((click: FirefoxMenuClick, tab: FirefoxMenuTab) => void) | undefined;
   const api: FirefoxContextMenusApi = {
     create(details) {
       created.push(details);
+    },
+    async remove(menuItemId) {
+      removed.push(menuItemId);
     },
     onClicked: {
       addListener(next) {
@@ -113,7 +117,7 @@ function menuFixture() {
       },
     },
   };
-  return { api, created, installed: () => listener !== undefined };
+  return { api, created, removed, installed: () => listener !== undefined };
 }
 
 function behaviorFixture(
@@ -147,6 +151,7 @@ function behaviorFixture(
       nonce: "abcdefghijklmnop",
       extensionId,
     }),
+    onError: vi.fn(),
   });
   const behavior = new FirefoxBrowserBehavior({
     contextMenus: menus.api,
@@ -246,19 +251,36 @@ describe("Firefox shared browser behavior", () => {
         mime: "text/plain",
         totalBytes: 4_096,
       },
+      {
+        id: 8,
+        url: "https://cdn.example.test/unknown.zip",
+        filename: "unknown.zip",
+        mime: "application/zip",
+        totalBytes: -1,
+      },
     ];
     for (const item of items) fixture.downloads.emit(item);
 
-    await vi.waitFor(() => expect(fixture.sent).toHaveLength(2));
+    await vi.waitFor(() => expect(fixture.sent).toHaveLength(3));
     expect(fixture.sent.map(({ payload }) => payload?.type)).toEqual([
       "add_download",
       "add_download",
+      "add_download",
     ]);
-    expect(fixture.downloads.cancelled).toEqual([2, 3]);
+    expect(fixture.downloads.cancelled).toEqual([2, 3, 8]);
 
-    fixture.behavior.uninstall();
+    await fixture.behavior.uninstall();
     expect(fixture.downloads.installed()).toBe(false);
     expect(fixture.menus.installed()).toBe(false);
+    expect(fixture.menus.removed).toEqual([
+      SINGLE_LINK_CONTEXT_MENU_ID,
+      FIREFOX_ALL_LINKS_MENU_ID,
+      FIREFOX_SELECTED_LINKS_MENU_ID,
+    ]);
+
+    fixture.behavior.install();
+    expect(fixture.downloads.installed()).toBe(true);
+    expect(fixture.menus.installed()).toBe(true);
   });
 
   const browserFixtures: readonly {
@@ -294,6 +316,7 @@ describe("Firefox shared browser behavior", () => {
           nonce: "abcdefghijklmnop",
           extensionId,
         }),
+        onError: vi.fn(),
       });
       const behavior = new FirefoxBrowserBehavior({
         contextMenus: menus.api,

@@ -78,6 +78,7 @@ async function acceptedHandoff(variant) {
         },
       },
       createContext: () => context(variant),
+      onError() {},
     });
     const item = {
       id: candidate.downloadId,
@@ -129,6 +130,7 @@ async function offlineFallback(variant) {
       health: { state: "disconnected" },
       messenger: { send: async () => null },
       createContext: () => context(variant),
+      onError() {},
       onFallback(details) {
         fallbacks.push(details.url);
       },
@@ -206,6 +208,7 @@ function firefoxBehavior({
   return new FirefoxBrowserBehavior({
     contextMenus: {
       create() {},
+      async remove() {},
       onClicked: { addListener() {}, removeListener() {} },
     },
     interception: { install() {}, uninstall() {} },

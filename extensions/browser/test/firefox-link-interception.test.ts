@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BrowserCancellationError,
   FirefoxLinkInterception,
   type FirefoxDownloadItem,
   type FirefoxDownloadsApi,
@@ -104,6 +105,7 @@ describe("Firefox link interception", () => {
           },
         },
         createContext: () => context(),
+        onError: vi.fn(),
       });
 
       const result = adapter.intercept(fixture.item);
@@ -144,6 +146,7 @@ describe("Firefox link interception", () => {
       health: { state: "disconnected" },
       messenger: { send: async () => null },
       createContext: () => context(),
+      onError: vi.fn(),
     });
 
     adapter.install(() => true);
@@ -183,6 +186,7 @@ describe("Firefox link interception", () => {
         health: scenario.health,
         messenger: { send: scenario.send },
         createContext: () => context(),
+        onError: vi.fn(),
         onFallback(details) {
           fallbacks.push(details);
         },
@@ -215,6 +219,7 @@ describe("Firefox link interception", () => {
         health: { state: "connected" },
         messenger: { send: () => new Promise(() => undefined) },
         createContext: () => context(),
+        onError: vi.fn(),
         handoffTimeoutMs: 250,
         onFallback(details) {
           fallbacks.push(details);
@@ -259,6 +264,7 @@ describe("Firefox link interception", () => {
         },
       },
       createContext: () => context(),
+      onError: vi.fn(),
       onFallback(details) {
         fallbacks.push(details);
       },
@@ -272,5 +278,44 @@ describe("Firefox link interception", () => {
       events: [],
       fallbacks: [],
     });
+  });
+
+  it("reports an accepted job when Firefox cannot cancel its duplicate", async () => {
+    const cause = new Error("download already completed");
+    const reported: unknown[] = [];
+    const downloads = downloadsFixture();
+    downloads.api.cancel = async () => {
+      throw cause;
+    };
+    const adapter = new FirefoxLinkInterception({
+      downloads: downloads.api,
+      health: { state: "connected" },
+      messenger: {
+        async send(message) {
+          return response(message.request_id, "accepted");
+        },
+      },
+      createContext: () => context(),
+      onError(error) {
+        reported.push(error);
+      },
+    });
+    const item = { id: 101, url: "https://files.example.test/archive.zip" };
+
+    await expect(adapter.intercept(item)).rejects.toMatchObject({
+      name: "BrowserCancellationError",
+      downloadId: item.id,
+      jobId: "018f47ce-8e51-7f31-a1ec-4a97f84a12ce",
+      cause,
+    });
+
+    adapter.install(() => true);
+    downloads.listener()?.({
+      id: 102,
+      url: "https://files.example.test/second.zip",
+    });
+    await vi.waitFor(() => expect(reported).toHaveLength(1));
+    expect(reported[0]).toBeInstanceOf(BrowserCancellationError);
+    expect(reported[0]).toMatchObject({ downloadId: 102, cause });
   });
 });
