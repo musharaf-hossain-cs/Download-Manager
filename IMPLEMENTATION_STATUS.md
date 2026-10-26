@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 5 — Chromium browser integration (next slice: S092)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S093)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -101,7 +101,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S089 | DONE | Extension `manifest.test.ts` verifies the least-required context-menu permission, link-only command registration, normalized direct and relative HTTP(S) dispatch, and rejection of unrelated/unsafe targets; focused extension tests and typecheck pass. |
 | S090 | DONE | Extension `all-links.test.ts` verifies direct/relative HTTP(S) normalization, fragment-insensitive stable deduplication, the 128-item native-batch cap, exact scan bounds, and 80 cooperative yields while processing a 20,000-candidate large-DOM fixture; full TypeScript and documentation gates pass. |
 | S091 | DONE | Extension `selected-links.test.ts` verifies selection-only collection, normalized duplicate removal across overlapping ranges, and empty-selection behavior; full extension tests and typecheck pass. |
-| S092 | TODO | — |
+| S092 | DONE | Desktop `batch-preview-dialog.test.ts` verifies URL/filename/type/size/source preview, search and MIME filtering, visible selection, editing, queue choice, and that only checked normalized HTTP(S) URLs reach the job port; full TypeScript and documentation gates pass. |
 | S093 | TODO | — |
 | S094 | TODO | — |
 | S095 | TODO | — |

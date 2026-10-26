@@ -12,6 +12,7 @@ export * from "./protocol.js";
 export * from "./accessibility.js";
 export * from "./add-url-dialog.js";
 export * from "./appearance.js";
+export * from "./batch-preview-dialog.js";
 export * from "./categories.js";
 export * from "./clipboard.js";
 export * from "./desktop-shell.js";
