@@ -84,7 +84,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S072 | DONE | Desktop `tray.test.ts` verifies all tray commands, persisted minimize/exit/ask close modes, rollback on persistence failure, and input validation; full TypeScript gates pass. |
 | S073 | DONE | Desktop `notifications.test.ts` verifies deterministic Windows completion/failure toasts, enable/support gating, invalid detail rejection, and the real-adapter smoke payload; full TypeScript gates pass. |
 | S074 | DONE | Desktop `clipboard.test.ts` verifies opt-in detection, HTTP(S) validation, normalized duplicate debounce, and prompt re-entry after the debounce window; full TypeScript gates pass. |
-| S075 | TODO | — |
+| S075 | DONE | Desktop `drag-drop.test.ts` verifies ordered URL/text/list normalization, Unicode URLs, duplicate reporting, and positioned invalid/unsupported item reports; full TypeScript gates pass. |
 | S076 | TODO | — |
 | S077 | TODO | — |
 | S078 | TODO | — |
