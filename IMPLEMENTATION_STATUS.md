@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 7 — Media detection and download (next slice: S101)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S102)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -110,7 +110,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S098 | DONE | Extension `firefox-link-interception.test.ts` runs stable/ESR fixtures through the shared handoff contract, proving one request/job, accepted-ACK-before-cancel ordering, duplicate suppression, optional-field compatibility, untouched fallback transfers, and typed reporting when browser cancellation fails; full TypeScript/document gates pass. |
 | S099 | DONE | Extension `firefox-browser-behavior.test.ts` runs stable/ESR shared contracts for filtered installed interception, unknown-size normalization, site/type rules, force/bypass keys, and lifecycle-safe single/all/selected context menus with bounded normalized batches; full TypeScript/document gates pass. |
 | S100 | DONE | `pnpm test:browser-regression` runs one Chrome/Edge/Firefox stable+ESR adapter-contract matrix for acknowledged handoff, fallback preservation, capture rules/keys, and single/all/selected menus, then writes the stable `test-results/browser-regression.json` artifact; full TypeScript/document gates pass. |
-| S101 | TODO | — |
+| S101 | DONE | Extension `media-candidates.test.ts` verifies normalized progressive/HLS/DASH classification, stable cross-source/player deduplication, SPA invalidation, immutable bounded snapshots, and malformed/false-positive rejection; full extension and documentation gates pass. |
 | S102 | TODO | — |
 | S103 | TODO | — |
 | S104 | TODO | — |
