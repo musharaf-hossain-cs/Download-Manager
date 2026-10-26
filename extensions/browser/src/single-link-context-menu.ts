@@ -1,4 +1,5 @@
 import type { ExtensionDownloadItem } from "./protocol.js";
+import { normalizeHttpUrl } from "./http-url.js";
 
 export const SINGLE_LINK_CONTEXT_MENU_ID = "download-with-download-manager";
 
@@ -49,8 +50,8 @@ export function normalizeSingleLinkClick(
     return null;
   }
 
-  const page = parseHttpUrl(click.pageUrl);
-  const link = parseHttpUrl(click.linkUrl, page ?? undefined);
+  const page = normalizeHttpUrl(click.pageUrl);
+  const link = normalizeHttpUrl(click.linkUrl, page ?? undefined);
   if (link === null || link.length > 8_192) return null;
 
   return {
@@ -58,20 +59,4 @@ export function normalizeSingleLinkClick(
     referrer: page,
     suggested_filename: null,
   };
-}
-
-function parseHttpUrl(value: string | undefined, base?: string): string | null {
-  if (value === undefined || value.length > 8_192) return null;
-  try {
-    const url = new URL(value, base);
-    if (
-      (url.protocol !== "http:" && url.protocol !== "https:") ||
-      url.hostname.length === 0
-    ) {
-      return null;
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
