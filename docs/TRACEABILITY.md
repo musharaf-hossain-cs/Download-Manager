@@ -56,6 +56,7 @@ This file defines the evidence format used as implementation proceeds. A require
 | `AC-03` | P0 | S028 | Verified | changed ETag and length fixtures | Unsafe append is blocked without changing the partial. |
 | `AC-12` | P0 | S037 | Implemented | precheck and injected disk-full tests | Engine result is actionable and byte-exact; desktop remediation flow remains later work. |
 | `AC-13` | P0 | S023 | Verified | traversal/ADS/device/control/Unicode sanitizer corpus | Constructed output remains one component beneath the selected directory. |
+| `ORG-004` | P0 | S058, S060, S066 | Implemented | desktop `download-list.test.ts` | Persisted list metadata is verified; large-list projection and live speed/ETA detail remain S060 and S066. |
 
 ## Evidence rules
 

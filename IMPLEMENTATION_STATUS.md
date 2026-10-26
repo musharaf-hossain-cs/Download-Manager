@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S058)
+- Current milestone: Milestone 4 — Desktop application (next slice: S060)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -67,8 +67,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S055 | DONE | `benchmark::tests::raw_metric_json_has_goodput_cpu_memory_connections_and_hash`; stable JSON records goodput, CPU, peak memory, wire/unique bytes, connection/handshake counts, and SHA-256. |
 | S056 | DONE | `benchmark::tests::two_fixture_runs_produce_reproducible_comparison_report`; two named metric captures generate identical JSON-compatible comparisons and stable Markdown with basis-point goodput deltas. |
 | S057 | DONE | Desktop `desktop-shell.test.ts` launch/health/close/invalid-message tests and Rust `desktop::tests` typed dispatcher tests pass. |
-| S058 | TODO | — |
-| S059 | TODO | — |
+| S058 | DONE | `desktop::tests::health_and_persisted_jobs_are_dispatched_over_typed_ipc` plus desktop `download-list.test.ts` loading/ready/empty/error states pass. |
+| S059 | DONE | Desktop `progress.test.ts` proves 20,000 synthetic events schedule one 250 ms latest-value batch and remain independent per job. |
 | S060 | TODO | — |
 | S061 | TODO | — |
 | S062 | TODO | — |

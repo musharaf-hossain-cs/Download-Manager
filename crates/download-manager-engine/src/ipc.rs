@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{
-    domain::{HttpUrl, JobId, RequestId, ValidationError},
+    domain::{HttpUrl, JobId, JobMetadata, RequestId, ValidationError},
     state::{DownloadEvent, DownloadState},
 };
 
@@ -79,7 +79,7 @@ pub enum UiRequest {
 pub enum UiResponse {
     Health { engine_version: String },
     Accepted { job_id: JobId },
-    Jobs { job_ids: Vec<JobId> },
+    Jobs { jobs: Vec<JobMetadata> },
     Rejected { code: String, message: String },
 }
 

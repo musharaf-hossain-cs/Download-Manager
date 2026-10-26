@@ -5,6 +5,7 @@ pub mod auth;
 pub mod benchmark;
 pub mod checkpoint;
 pub mod credentials;
+pub mod desktop;
 pub mod disk;
 pub mod domain;
 pub mod fairness;
