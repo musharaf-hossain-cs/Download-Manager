@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 6 — Firefox and browser regression (next slice: S100)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S101)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -109,7 +109,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S097 | DONE | Firefox `allowed_extensions` manifest/HKCU registration smoke passes; native-host unit/process tests bind the exact manifest path plus add-on ID to the running executable, packaged allowlist, request envelope, and current user while rejecting wrong IDs/manifests. |
 | S098 | DONE | Extension `firefox-link-interception.test.ts` runs stable/ESR fixtures through the shared handoff contract, proving one request/job, accepted-ACK-before-cancel ordering, duplicate suppression, optional-field compatibility, and untouched browser transfers for offline/rejected/timed-out fallbacks; full TypeScript/document gates pass. |
 | S099 | DONE | Extension `firefox-browser-behavior.test.ts` runs stable/ESR shared contracts for filtered installed interception, site/type rules, force/bypass keys, and single/all/selected context menus with bounded normalized batches; full TypeScript/document gates pass. |
-| S100 | TODO | — |
+| S100 | DONE | `pnpm test:browser-regression` runs one Chrome/Edge/Firefox stable+ESR adapter-contract matrix for acknowledged handoff, fallback preservation, capture rules/keys, and single/all/selected menus, then writes the stable `test-results/browser-regression.json` artifact; full TypeScript/document gates pass. |
 | S101 | TODO | — |
 | S102 | TODO | — |
 | S103 | TODO | — |
