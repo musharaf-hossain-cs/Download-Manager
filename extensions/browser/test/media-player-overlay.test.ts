@@ -74,6 +74,7 @@ class FakeDocument {
 function domFixture() {
   const document = new FakeDocument();
   const player = {
+    isConnected: true,
     controls: true,
     className: "site-player theater",
     style: { position: "relative", width: "100%" },

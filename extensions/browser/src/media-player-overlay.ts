@@ -3,6 +3,7 @@ export const MEDIA_PLAYER_OVERLAY_HOST_ATTRIBUTE =
 
 export interface BasicMediaPlayerOverlay {
   readonly host: HTMLElement;
+  reposition(): void;
   destroy(): void;
 }
 
@@ -17,12 +18,9 @@ export function mountBasicMediaPlayerOverlay(
   options: BasicMediaPlayerOverlayOptions,
 ): BasicMediaPlayerOverlay {
   const { document, player, onDownload } = options;
-  const rect = player.getBoundingClientRect();
   const host = document.createElement("div");
   host.setAttribute(MEDIA_PLAYER_OVERLAY_HOST_ATTRIBUTE, "");
   host.style.position = "fixed";
-  host.style.top = `${String(Math.max(8, rect.top + 8))}px`;
-  host.style.left = `${String(Math.max(8, rect.right - 8))}px`;
   host.style.transform = "translateX(-100%)";
   host.style.zIndex = "2147483647";
   host.style.pointerEvents = "none";
@@ -57,8 +55,20 @@ export function mountBasicMediaPlayerOverlay(
   document.documentElement.append(host);
 
   let destroyed = false;
+  const reposition = (): void => {
+    if (destroyed) return;
+    const rect = player.getBoundingClientRect();
+    host.style.top = `${String(Math.max(8, rect.top + 8))}px`;
+    host.style.left = `${String(Math.max(8, rect.right - 8))}px`;
+    host.style.display =
+      player.isConnected && rect.width > 0 && rect.height > 0
+        ? "block"
+        : "none";
+  };
+  reposition();
   return Object.freeze({
     host,
+    reposition,
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
