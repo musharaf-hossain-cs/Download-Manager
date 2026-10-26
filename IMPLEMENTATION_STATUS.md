@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 7 — Media detection and download (next slice: S105)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S106)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -114,7 +114,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S102 | DONE | Extension `media-player-overlay.test.ts` verifies a closed Shadow-DOM download button, fixed player-corner placement, click/cleanup behavior, clipped-player viewport gutter, and unchanged host player layout/classes/controls; full extension and documentation gates pass. |
 | S103 | DONE | Extension `media-overlay-lifecycle.test.ts` verifies coalesced dynamic insertion/removal, fragment-stable and route-changing SPA identities, theater/zoom/player-resize repositioning, fullscreen portal changes, observer cleanup, and multiple eligible players; full TypeScript and documentation gates pass. |
 | S104 | DONE | Extension `media-player-overlay.test.ts` verifies isolated minimize/drag controls and state reporting; `media-overlay-interaction.test.ts` verifies persisted/clamped per-site state, global/exact-site enable exceptions, malformed-state normalization, and persistence rollback; full TypeScript and documentation gates pass. |
-| S105 | TODO | — |
+| S105 | DONE | Extension `progressive-media-handoff.test.ts` verifies acknowledged MP4/WebM/audio handoff with the required normalized referrer, exact fixture bytes/SHA-256, duplicate suppression, bounded timeout/retry, and invalid/offline/native-rejection handling; full TypeScript and documentation gates pass. |
 | S106 | TODO | — |
 | S107 | TODO | — |
 | S108 | TODO | — |
