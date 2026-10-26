@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 5 — Chromium browser integration (next slice: S088)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S089)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -97,7 +97,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S085 | DONE | Extension `link-handoff.test.ts` verifies once-only fallback with the original URL for offline, rejected, malformed, and timed-out handoffs; accepted handoffs never fallback and failed handoffs never cancel; full TypeScript gates pass. |
 | S086 | DONE | Extension `capture-rules.test.ts` decision table verifies normalized extension and exact/wildcard MIME matches, minimum-size precedence, unknown-size eligibility, invalid size metadata, and explicit decision reasons; focused extension tests and typecheck pass. |
 | S087 | DONE | Extension `site-rules.test.ts` verifies global allow/deny fallback, exact and wildcard site overrides, specificity precedence, deny-on-tie behavior, apex separation, and malformed input rejection; focused extension tests and typecheck pass. |
-| S088 | TODO | — |
+| S088 | DONE | Extension `modifier-keys.test.ts` verifies documented Ctrl-force/Alt-bypass defaults, configurable alternatives, invalid binding rejection, and deterministic bypass-on-conflict behavior; focused extension tests and typecheck pass. |
 | S089 | TODO | — |
 | S090 | TODO | — |
 | S091 | TODO | — |
