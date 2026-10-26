@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S068)
+- Current milestone: Milestone 4 — Desktop application (next slice: S071)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -77,7 +77,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S065 | DONE | Desktop `download-list.test.ts` mixed-state bulk resume, stop, and record-only delete-completed tests cover deduplication plus succeeded/failed/skipped reporting; full gates pass. |
 | S066 | DONE | Desktop `segment-detail.test.ts` fake snapshots verify per-connection progress and speed, aggregate speed/ETA, complete zero ETA, and unknown/stalled ETA handling; full gates pass. |
 | S067 | DONE | Desktop `categories.test.ts` verifies the deterministic six-category default set, per-category destinations, remembered-folder policy, and invalid root rejection; full gates pass. |
-| S068 | TODO | — |
+| S068 | DONE | Desktop `categories.test.ts` precedence table verifies ordered first-match extension/MIME/host rules, normalization, MIME wildcards/parameters, visible priority, and General fallback; full gates pass. |
 | S069 | DONE | Desktop `history.test.ts` verifies completed-only full-text/category/date filtering, validated retention, and record-only clear operations that never target downloaded files; full gates pass. |
 | S070 | DONE | Desktop `settings.test.ts` verifies multi-field search, typed persisted updates, per-section/all reset, persistence rollback, and preference-only ports that preserve jobs/files; full gates pass. |
 | S071 | TODO | — |

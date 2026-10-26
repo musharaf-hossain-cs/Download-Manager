@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDefaultCategories,
+  matchCategoryRules,
   resolveCategoryDestination,
+  type CategoryMatchInput,
+  type CategoryRule,
 } from "../src/categories.js";
 
 describe("default categories", () => {
@@ -61,6 +64,70 @@ describe("default categories", () => {
   });
 });
 
+describe("ordered category rules", () => {
+  const rules: readonly CategoryRule[] = [
+    {
+      id: "host-release",
+      categoryId: "programs",
+      kind: "host",
+      value: "downloads.example.com",
+    },
+    {
+      id: "zip-file",
+      categoryId: "compressed",
+      kind: "extension",
+      value: ".ZIP",
+    },
+    {
+      id: "video-content",
+      categoryId: "video",
+      kind: "mime",
+      value: "video/*",
+    },
+  ];
+
+  it.each([
+    {
+      label: "host precedes extension and MIME",
+      input: candidate("zip", "video/mp4", "DOWNLOADS.EXAMPLE.COM."),
+      expected: {
+        categoryId: "programs",
+        matchedRuleId: "host-release",
+        priority: 1,
+      },
+    },
+    {
+      label: "extension precedes MIME after the host misses",
+      input: candidate(".Zip", "video/mp4", "cdn.example.com"),
+      expected: {
+        categoryId: "compressed",
+        matchedRuleId: "zip-file",
+        priority: 2,
+      },
+    },
+    {
+      label: "MIME wildcard handles parameters and case",
+      input: candidate("bin", "Video/MP4; charset=binary", "cdn.example.com"),
+      expected: {
+        categoryId: "video",
+        matchedRuleId: "video-content",
+        priority: 3,
+      },
+    },
+  ])("uses first-match precedence when $label", ({ input, expected }) => {
+    expect(matchCategoryRules(input, rules)).toEqual(expected);
+  });
+
+  it("falls back to General when no ordered rule matches", () => {
+    expect(
+      matchCategoryRules(
+        candidate("txt", "text/plain", "documents.example.com"),
+        rules,
+      ),
+    ).toEqual({ categoryId: "general", matchedRuleId: null, priority: null });
+  });
+});
+
 function category(id: string, name: string, defaultFolder: string) {
   return {
     id,
@@ -71,4 +138,12 @@ function category(id: string, name: string, defaultFolder: string) {
       lastFolder: null,
     },
   };
+}
+
+function candidate(
+  extension: string | null,
+  mimeType: string | null,
+  sourceHost: string | null,
+): CategoryMatchInput {
+  return { extension, mimeType, sourceHost };
 }

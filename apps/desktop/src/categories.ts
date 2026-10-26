@@ -23,6 +23,29 @@ export interface DownloadCategory {
   readonly destination: CategoryDestination;
 }
 
+export type CategoryRuleKind = "extension" | "mime" | "host";
+
+/** Rules are evaluated in array order; the first matching rule wins. */
+export interface CategoryRule {
+  readonly id: string;
+  readonly categoryId: string;
+  readonly kind: CategoryRuleKind;
+  readonly value: string;
+}
+
+export interface CategoryMatchInput {
+  readonly extension: string | null;
+  readonly mimeType: string | null;
+  readonly sourceHost: string | null;
+}
+
+export interface CategoryRuleMatch {
+  readonly categoryId: string;
+  readonly matchedRuleId: string | null;
+  /** One-based position shown as the rule's first-match priority. */
+  readonly priority: number | null;
+}
+
 /**
  * Creates the deterministic first-run category set.
  *
@@ -51,6 +74,80 @@ export function resolveCategoryDestination(category: DownloadCategory): string {
   return rememberLastFolder && lastFolder !== null
     ? normalizeRoot(lastFolder)
     : normalizeRoot(defaultFolder);
+}
+
+/** Selects the first matching category rule, or the General category. */
+export function matchCategoryRules(
+  input: CategoryMatchInput,
+  rules: readonly CategoryRule[],
+): CategoryRuleMatch {
+  const candidate = {
+    extension: normalizeExtension(input.extension),
+    mime: normalizeMime(input.mimeType),
+    host: normalizeHost(input.sourceHost),
+  };
+
+  for (const [index, rule] of rules.entries()) {
+    if (matchesRule(rule, candidate)) {
+      return {
+        categoryId: rule.categoryId,
+        matchedRuleId: rule.id,
+        priority: index + 1,
+      };
+    }
+  }
+  return { categoryId: "general", matchedRuleId: null, priority: null };
+}
+
+function matchesRule(
+  rule: CategoryRule,
+  candidate: {
+    readonly extension: string | null;
+    readonly mime: string | null;
+    readonly host: string | null;
+  },
+): boolean {
+  if (rule.kind === "extension") {
+    const value = normalizeExtension(rule.value);
+    return value !== null && value === candidate.extension;
+  }
+  if (rule.kind === "host") {
+    const value = normalizeHost(rule.value);
+    return value !== null && value === candidate.host;
+  }
+  const value = normalizeMime(rule.value);
+  if (value === null || candidate.mime === null) return false;
+  if (value.endsWith("/*")) {
+    return candidate.mime.startsWith(value.slice(0, -1));
+  }
+  return value === candidate.mime;
+}
+
+function normalizeExtension(value: string | null): string | null {
+  const normalized = value
+    ?.trim()
+    .replace(/^\.+/, "")
+    .toLocaleLowerCase("en-US");
+  return normalized === undefined || normalized.length === 0
+    ? null
+    : normalized;
+}
+
+function normalizeMime(value: string | null): string | null {
+  const normalized = value?.split(";", 1)[0]?.trim().toLocaleLowerCase("en-US");
+  return normalized === undefined || normalized.length === 0
+    ? null
+    : normalized;
+}
+
+function normalizeHost(value: string | null): string | null {
+  const normalized = value
+    ?.trim()
+    .replace(/\.+$/, "")
+    .toLocaleLowerCase("en-US");
+  return normalized === undefined || normalized.length === 0
+    ? null
+    : normalized;
 }
 
 function normalizeRoot(folder: string): string {
