@@ -107,7 +107,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S095 | DONE | Desktop `browser-integration-diagnostics.test.ts` verifies healthy and broken extension/version, Chrome/Edge registration, manifest, executable, allowlist, connection, protocol, and native-host fixtures plus deduplicated repair/recheck and failure preservation; extension `connection-health.test.ts` verifies exact mismatch evidence opens the repair flow; full verification gates pass. |
 | S096 | DONE | Firefox Manifest V3 shares the Chromium identity/permissions and compiled TypeScript source; `web-ext` 10.8.0 lint and reproducible ZIP build pass, with focused manifest tests and full TypeScript/document gates green. |
 | S097 | DONE | Firefox `allowed_extensions` manifest/HKCU registration smoke passes; native-host unit/process tests bind the exact manifest path plus add-on ID to the running executable, packaged allowlist, request envelope, and current user while rejecting wrong IDs/manifests. |
-| S098 | TODO | — |
+| S098 | DONE | Extension `firefox-link-interception.test.ts` runs stable/ESR fixtures through the shared handoff contract, proving one request/job, accepted-ACK-before-cancel ordering, duplicate suppression, optional-field compatibility, and untouched browser transfers for offline/rejected/timed-out fallbacks; full TypeScript/document gates pass. |
 | S099 | TODO | — |
 | S100 | TODO | — |
 | S101 | TODO | — |

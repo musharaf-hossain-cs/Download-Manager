@@ -22,3 +22,4 @@ export * from "./single-link-context-menu.js";
 export * from "./all-links.js";
 export * from "./selected-links.js";
 export * from "./browser-profile.js";
+export * from "./firefox-link-interception.js";
