@@ -18,6 +18,14 @@ export interface RemovalConfirmation {
   readonly confirmedPath: string | null;
 }
 
+export type BulkAction = "resume" | "stop" | "delete_completed";
+
+export interface BulkResult {
+  readonly succeeded: readonly string[];
+  readonly failed: readonly string[];
+  readonly skipped: readonly string[];
+}
+
 /** Renderer-facing state model. It never reads SQLite directly. */
 export class DownloadListController {
   #state: DownloadListState = { status: "loading", jobs: [] };
@@ -151,6 +159,39 @@ export class DownloadListController {
     }
   }
 
+  public async bulk(
+    action: BulkAction,
+    selectedJobIds?: readonly string[],
+  ): Promise<BulkResult> {
+    if (this.#state.status !== "ready") {
+      return { succeeded: [], failed: [], skipped: selectedJobIds ?? [] };
+    }
+    const jobs = new Map(this.#state.jobs.map((job) => [job.id, job]));
+    const selected = [
+      ...new Set(selectedJobIds ?? this.#state.jobs.map((job) => job.id)),
+    ];
+    const succeeded: string[] = [];
+    const failed: string[] = [];
+    const skipped: string[] = [];
+    for (const jobId of selected) {
+      const job = jobs.get(jobId);
+      if (job === undefined || !bulkEligible(job.state, action)) {
+        skipped.push(jobId);
+        continue;
+      }
+      const success =
+        action === "delete_completed"
+          ? await this.remove({
+              jobId,
+              action: "remove_record",
+              confirmedPath: null,
+            })
+          : await this.control(jobId, action);
+      (success ? succeeded : failed).push(jobId);
+    }
+    return { succeeded, failed, skipped };
+  }
+
   #replaceJob(jobId: string, replace: (job: DownloadJob) => DownloadJob): void {
     if (this.#state.status !== "ready") return;
     this.#state = {
@@ -215,4 +256,10 @@ function localFilePath(job: DownloadJob): string {
   const separator = job.destination.endsWith("\\") ? "" : "\\";
   const suffix = job.state === "completed" ? "" : ".part";
   return `${job.destination}${separator}${job.filename}${suffix}`;
+}
+
+function bulkEligible(state: DownloadState, action: BulkAction): boolean {
+  if (action === "resume") return state === "paused";
+  if (action === "stop") return state === "queued" || state === "downloading";
+  return state === "completed";
 }

@@ -224,4 +224,89 @@ describe("persisted download list", () => {
     expect(removals).toBe(1);
     expect(controller.state).toEqual({ status: "empty", jobs: [] });
   });
+
+  it("bulk resume skips every non-paused or duplicate selection", async () => {
+    const controls: string[] = [];
+    const controller = new DownloadListController({
+      listJobs: async () => [
+        jobFixture({ id: "paused", state: "paused" }),
+        jobFixture({ id: "queued", state: "queued" }),
+        jobFixture({ id: "complete", state: "completed" }),
+      ],
+      controlJob: async (jobId, action) => {
+        controls.push(`${jobId}:${action}`);
+        return { jobId, state: "queued", updatedAt: 1_700_000_000_500 };
+      },
+      removeJob: unusedRemoval,
+    });
+    await controller.load();
+
+    await expect(
+      controller.bulk("resume", ["paused", "queued", "missing", "paused"]),
+    ).resolves.toEqual({
+      succeeded: ["paused"],
+      failed: [],
+      skipped: ["queued", "missing"],
+    });
+    expect(controls).toEqual(["paused:resume"]);
+  });
+
+  it("bulk stop targets queued and downloading jobs in a mixed list", async () => {
+    const controller = new DownloadListController({
+      listJobs: async () => [
+        jobFixture({ id: "queued", state: "queued" }),
+        jobFixture({ id: "active", state: "downloading" }),
+        jobFixture({ id: "paused", state: "paused" }),
+      ],
+      controlJob: async (jobId) => ({
+        jobId,
+        state: jobId === "queued" ? "paused" : "pausing",
+        updatedAt: 1_700_000_000_500,
+      }),
+      removeJob: unusedRemoval,
+    });
+    await controller.load();
+
+    await expect(controller.bulk("stop")).resolves.toEqual({
+      succeeded: ["queued", "active"],
+      failed: [],
+      skipped: ["paused"],
+    });
+    expect(controller.state.jobs.map((job) => job.state)).toEqual([
+      "paused",
+      "pausing",
+      "paused",
+    ]);
+  });
+
+  it("delete completed is record-only and reports mixed success", async () => {
+    const removals: string[] = [];
+    const controller = new DownloadListController({
+      listJobs: async () => [
+        jobFixture({ id: "done-a", state: "completed" }),
+        jobFixture({ id: "failed", state: "failed" }),
+        jobFixture({ id: "done-b", state: "completed" }),
+      ],
+      controlJob: unusedControl,
+      removeJob: async (jobId, action, path) => {
+        removals.push(`${jobId}:${action}:${String(path)}`);
+        if (jobId === "done-b") throw new Error("database busy");
+      },
+    });
+    await controller.load();
+
+    await expect(controller.bulk("delete_completed")).resolves.toEqual({
+      succeeded: ["done-a"],
+      failed: ["done-b"],
+      skipped: ["failed"],
+    });
+    expect(removals).toEqual([
+      "done-a:remove_record:null",
+      "done-b:remove_record:null",
+    ]);
+    expect(controller.state.jobs.map((job) => job.id)).toEqual([
+      "failed",
+      "done-b",
+    ]);
+  });
 });
