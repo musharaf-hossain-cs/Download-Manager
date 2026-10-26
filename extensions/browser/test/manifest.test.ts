@@ -14,6 +14,7 @@ interface ChromiumManifest {
   readonly content_security_policy?: { readonly extension_pages?: string };
   readonly description?: string;
   readonly host_permissions?: readonly string[];
+  readonly incognito?: string;
   readonly manifest_version?: number;
   readonly name?: string;
   readonly permissions?: readonly string[];
@@ -32,6 +33,7 @@ describe("Chromium extension manifest", () => {
       action: { default_title: "Download Manager" },
     });
     expect(manifest.description).toBeTruthy();
+    expect(manifest.incognito).toBe("split");
     expect(manifest.background).toBeUndefined();
   });
 

@@ -55,6 +55,59 @@ export class BrowserProfileMetadataBoundary<Metadata> {
   }
 }
 
+export type BrowserMetadataContext = "regular" | "incognito";
+
+/**
+ * Routes regular metadata through the profile-scoped persistence boundary and
+ * keeps explicitly enabled incognito metadata only in this session instance.
+ */
+export class BrowserProfilePrivacyBoundary<Metadata> {
+  #incognitoEnabled = false;
+  #incognitoMetadata: Metadata | null = null;
+
+  public constructor(
+    private readonly persistent: BrowserProfileMetadataBoundary<Metadata>,
+  ) {}
+
+  public get identity(): BrowserProfileIdentity {
+    return this.persistent.identity;
+  }
+
+  public get incognitoEnabled(): boolean {
+    return this.#incognitoEnabled;
+  }
+
+  public enableIncognitoSession(): void {
+    this.#incognitoEnabled = true;
+  }
+
+  public endIncognitoSession(): void {
+    this.#incognitoMetadata = null;
+    this.#incognitoEnabled = false;
+  }
+
+  public async load(context: BrowserMetadataContext): Promise<Metadata | null> {
+    if (context === "regular") return await this.persistent.load();
+    this.#requireIncognitoEnabled();
+    return this.#incognitoMetadata;
+  }
+
+  public async save(
+    context: BrowserMetadataContext,
+    metadata: Metadata,
+  ): Promise<void> {
+    if (context === "regular") return await this.persistent.save(metadata);
+    this.#requireIncognitoEnabled();
+    this.#incognitoMetadata = metadata;
+  }
+
+  #requireIncognitoEnabled(): void {
+    if (!this.#incognitoEnabled) {
+      throw new Error("incognito integration is disabled");
+    }
+  }
+}
+
 export function createBrowserProfileScope(
   identity: BrowserProfileIdentity,
 ): BrowserProfileScope {

@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 5 — Chromium browser integration (next slice: S093)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S095)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -103,7 +103,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S091 | DONE | Extension `selected-links.test.ts` verifies selection-only collection, normalized duplicate removal across overlapping ranges, and empty-selection behavior; full extension tests and typecheck pass. |
 | S092 | DONE | Desktop `batch-preview-dialog.test.ts` verifies URL/filename/type/size/source preview, search and MIME filtering, visible selection, editing, queue choice, and that only checked normalized HTTP(S) URLs reach the job port; full TypeScript and documentation gates pass. |
 | S093 | DONE | Extension `browser-profile.test.ts` verifies browser/profile composite identity, two-profile metadata isolation, cross-browser separation, and invalid identity rejection; full TypeScript gates pass. |
-| S094 | TODO | — |
+| S094 | DONE | Extension `browser-profile.test.ts` verifies incognito default-off rejection, explicit session opt-in, end-of-session clearing, and zero private persistence calls; manifest tests verify split incognito execution; full TypeScript gates pass. |
 | S095 | TODO | — |
 | S096 | TODO | — |
 | S097 | TODO | — |
