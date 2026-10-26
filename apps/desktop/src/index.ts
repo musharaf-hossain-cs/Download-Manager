@@ -14,6 +14,7 @@ export * from "./appearance.js";
 export * from "./categories.js";
 export * from "./clipboard.js";
 export * from "./desktop-shell.js";
+export * from "./desktop-actions.js";
 export * from "./drag-drop.js";
 export * from "./download-list.js";
 export * from "./engine-client.js";
