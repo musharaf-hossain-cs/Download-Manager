@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S066)
+- Current milestone: Milestone 4 — Desktop application (next slice: S067)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -75,7 +75,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S063 | DONE | Engine `desktop::tests::start_pause_resume_and_stop_controls_are_atomic_and_journaled` plus invalid-action durability test; desktop `download-list.test.ts` verifies acknowledged controls and optimistic rollback; full gates pass. |
 | S064 | DONE | Engine `desktop::tests::cancel_and_record_only_removal_preserve_the_exact_local_file` and `delete_file_requires_confirmation_for_the_exact_job_target`; desktop confirmation-binding tests; full gates pass. |
 | S065 | DONE | Desktop `download-list.test.ts` mixed-state bulk resume, stop, and record-only delete-completed tests cover deduplication plus succeeded/failed/skipped reporting; full gates pass. |
-| S066 | TODO | — |
+| S066 | DONE | Desktop `segment-detail.test.ts` fake snapshots verify per-connection progress and speed, aggregate speed/ETA, complete zero ETA, and unknown/stalled ETA handling; full gates pass. |
 | S067 | TODO | — |
 | S068 | TODO | — |
 | S069 | TODO | — |
