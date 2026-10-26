@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S072)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S079)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -87,7 +87,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S075 | DONE | Desktop `drag-drop.test.ts` verifies ordered URL/text/list normalization, Unicode URLs, duplicate reporting, and positioned invalid/unsupported item reports; full TypeScript gates pass. |
 | S076 | DONE | Desktop `desktop-actions.test.ts` verifies persisted/clamped floating-target state, enabled-only normalized drops, exact completed-file/folder paths, and persistence rollback; full desktop tests and typecheck pass. |
 | S077 | DONE | Desktop `localization.test.ts` verifies complete externalized English/Bangla catalogs, locale fallback, missing/unknown-key rejection, and Unicode-safe 30% text-expansion fixtures; full desktop tests and typecheck pass. |
-| S078 | TODO | — |
+| S078 | DONE | Desktop `accessibility.test.ts` automated scan verifies named application/toolbar/grid roles, column and row semantics, non-color state cues, and Windows high-contrast tokens; deterministic keyboard walkthrough verifies roving focus, disabled-control skipping, activation, reverse navigation, and a visible focus ring; full TypeScript gates pass. |
 | S079 | TODO | — |
 | S080 | TODO | — |
 | S081 | TODO | — |
@@ -215,4 +215,5 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M3 | `cargo +1.99.1-x86_64-pc-windows-gnu fmt --all -- --check`; `cargo +1.99.1-x86_64-pc-windows-gnu clippy --workspace --all-targets -- -D warnings` | Passed; segmented I/O, schedulers, limits, proxy/auth, credential storage, networking, and benchmark modules are clean. |
 | M3 | `pnpm run format:check`; `pnpm run lint`; `pnpm run build`; `pnpm run typecheck`; `pnpm test` | Passed: both TypeScript packages build/typecheck and 5 tests pass across 4 files. |
 | M3 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts; Gitleaks full-history scan | Passed: no known vulnerabilities or leaks; dependency sources/licenses accepted (duplicate-version policy warnings only). |
+| M4 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks, Rust format/clippy and 75 engine tests plus CLI/native-host tests, and TypeScript format/lint/build/typecheck with 76 desktop and 3 browser tests. |
 

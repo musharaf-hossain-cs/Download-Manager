@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 4 in progress through S077.** Desktop strings now have complete English/Bangla catalogs, strict key validation, locale fallback, and 30% text-expansion fixtures. The accessibility pass begins at S078.
+> **Project status: Milestone 4 complete through S078.** The desktop contracts now cover keyboard and screen-reader semantics, visible focus, non-color status cues, and Windows high-contrast tokens. Chromium browser integration begins at S079.
 
 ## Goals
 
