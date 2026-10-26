@@ -28,4 +28,30 @@ describe("UI protocol", () => {
       "invalid engine message envelope",
     );
   });
+
+  it("accepts only a strict acknowledged job-control state", () => {
+    const response = {
+      version: 1,
+      request_id: "018f47ce-8e51-7f31-a1ec-4a97f84a12cd",
+      payload: {
+        type: "response",
+        response: {
+          type: "job_state",
+          job_id: "018f47ce-8e51-7f31-a1ec-4a97f84a12cd",
+          state: "pausing",
+          updated_at: 1_700_000_000_250,
+        },
+      },
+    };
+    expect(decodeUiMessage(response)).toEqual(response);
+    expect(() =>
+      decodeUiMessage({
+        ...response,
+        payload: {
+          ...response.payload,
+          response: { ...response.payload.response, unexpected: true },
+        },
+      }),
+    ).toThrow("invalid job_state engine response");
+  });
 });

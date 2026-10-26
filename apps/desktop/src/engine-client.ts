@@ -5,6 +5,7 @@ import {
   type DownloadEvent,
   type DownloadJob,
   type DuplicateAction,
+  type JobAction,
   type UiRequest,
   type UiRequestEnvelope,
   type UiResponse,
@@ -25,7 +26,14 @@ export interface EngineApi {
   listJobs(): Promise<readonly DownloadJob[]>;
   probeUrl(sourceUrl: string, destination: string): Promise<UrlProbe>;
   addJob(options: AddJobOptions): Promise<string>;
+  controlJob(jobId: string, action: JobAction): Promise<JobControlResult>;
   subscribeToEvents(listener: (event: DownloadEvent) => void): () => void;
+}
+
+export interface JobControlResult {
+  readonly jobId: string;
+  readonly state: DownloadJob["state"];
+  readonly updatedAt: number;
 }
 
 export interface AddJobOptions {
@@ -126,6 +134,27 @@ export class EngineClient implements EngineApi {
       );
     }
     return response.job_id;
+  }
+
+  public async controlJob(
+    jobId: string,
+    action: JobAction,
+  ): Promise<JobControlResult> {
+    const response = await this.#request({
+      type: "control_job",
+      job_id: jobId,
+      action,
+    });
+    if (response.type !== "job_state" || response.job_id !== jobId) {
+      throw new ProtocolViolationError(
+        "control request received a non-state response",
+      );
+    }
+    return {
+      jobId: response.job_id,
+      state: response.state,
+      updatedAt: response.updated_at,
+    };
   }
 
   public subscribeToEvents(

@@ -23,6 +23,7 @@ export type DownloadKind = "file" | "media";
 export type DownloadPriority = "low" | "normal" | "high";
 export type DuplicateAction =
   "focus_existing" | "add_duplicate" | "replace_existing";
+export type JobAction = "start" | "pause" | "resume" | "stop";
 
 /** Complete, non-secret job metadata returned by the engine. */
 export interface DownloadJob {
@@ -75,9 +76,9 @@ export type UiRequest =
       readonly duplicate_action: DuplicateAction;
     }
   | {
-      readonly type: "transition_job";
+      readonly type: "control_job";
       readonly job_id: string;
-      readonly state: DownloadState;
+      readonly action: JobAction;
     };
 
 export interface UiRequestEnvelope {
@@ -91,6 +92,12 @@ export type UiResponse =
   | { readonly type: "accepted"; readonly job_id: string }
   | { readonly type: "jobs"; readonly jobs: readonly DownloadJob[] }
   | ({ readonly type: "url_probe" } & UrlProbe)
+  | {
+      readonly type: "job_state";
+      readonly job_id: string;
+      readonly state: DownloadState;
+      readonly updated_at: number;
+    }
   | {
       readonly type: "rejected";
       readonly code: string;
@@ -300,6 +307,17 @@ function parseResponse(value: unknown): UiResponse {
         typeof value.destination === "string" &&
         isNullableNonNegativeNumber(value.total_bytes) &&
         isNullableString(value.mime_type)
+      ) {
+        return value as unknown as UiResponse;
+      }
+      break;
+    case "job_state":
+      if (
+        hasExactKeys(value, ["type", "job_id", "state", "updated_at"]) &&
+        typeof value.job_id === "string" &&
+        typeof value.state === "string" &&
+        DOWNLOAD_STATES.has(value.state) &&
+        isNonNegativeNumber(value.updated_at)
       ) {
         return value as unknown as UiResponse;
       }

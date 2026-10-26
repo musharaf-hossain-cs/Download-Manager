@@ -14,8 +14,8 @@ use crate::{
     domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
     filename::{safe_destination, sanitize_windows_filename, select_filename},
     ipc::{
-        DuplicateAction, Envelope, ProtocolError, UI_PROTOCOL_VERSION, UiMessage, UiRequest,
-        UiResponse, decode_ui_request,
+        DuplicateAction, Envelope, JobAction, ProtocolError, UI_PROTOCOL_VERSION, UiMessage,
+        UiRequest, UiResponse, decode_ui_request,
     },
     probe::HttpProbe,
     state::DownloadState,
@@ -84,10 +84,7 @@ impl DesktopService {
                 start_now,
                 duplicate_action,
             })?,
-            UiRequest::TransitionJob { .. } => UiResponse::Rejected {
-                code: "not_implemented".to_owned(),
-                message: "this desktop command is not available yet".to_owned(),
-            },
+            UiRequest::ControlJob { job_id, action } => self.control_job(job_id, action)?,
         };
         Ok(Envelope::new(
             UI_PROTOCOL_VERSION,
@@ -145,6 +142,50 @@ impl DesktopService {
         Ok(UiResponse::Accepted {
             job_id: metadata.id,
         })
+    }
+
+    fn control_job(
+        &mut self,
+        job_id: JobId,
+        action: JobAction,
+    ) -> Result<UiResponse, StorageError> {
+        let Some(job) = self.database.get_job(job_id)? else {
+            return Ok(UiResponse::Rejected {
+                code: "job_not_found".to_owned(),
+                message: format!("job {job_id} does not exist"),
+            });
+        };
+        let Some(next) = control_target(job.metadata.state, action) else {
+            return Ok(UiResponse::Rejected {
+                code: "invalid_job_action".to_owned(),
+                message: format!("cannot {action:?} a {} job", job.metadata.state),
+            });
+        };
+        let at = current_time();
+        let state = self.database.transition_job(
+            job_id,
+            next,
+            at,
+            Some(format!("desktop {action:?} control").to_ascii_lowercase()),
+        )?;
+        Ok(UiResponse::JobState {
+            job_id,
+            state,
+            updated_at: at,
+        })
+    }
+}
+
+const fn control_target(current: DownloadState, action: JobAction) -> Option<DownloadState> {
+    match (current, action) {
+        (DownloadState::Created, JobAction::Start) => Some(DownloadState::Probing),
+        (DownloadState::Queued, JobAction::Start) => Some(DownloadState::Connecting),
+        (DownloadState::Downloading, JobAction::Pause | JobAction::Stop) => {
+            Some(DownloadState::Pausing)
+        }
+        (DownloadState::Queued, JobAction::Pause | JobAction::Stop) => Some(DownloadState::Paused),
+        (DownloadState::Paused, JobAction::Resume) => Some(DownloadState::Queued),
+        _ => None,
     }
 }
 
@@ -219,7 +260,10 @@ mod tests {
 
     use crate::{
         domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, RequestId, UnixMillis},
-        ipc::{DuplicateAction, Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
+        ipc::{
+            DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION, UiMessage, UiRequest,
+            UiResponse,
+        },
         state::DownloadState,
         storage::Database,
         test_support::{Fixture, FixtureServer},
@@ -416,8 +460,20 @@ mod tests {
 
         let jobs = listed_jobs(&mut service);
         assert_eq!(jobs.len(), 2);
-        assert_eq!(jobs[0].state, DownloadState::Queued);
-        assert_eq!(jobs[1].state, DownloadState::Created);
+        assert_eq!(
+            jobs.iter()
+                .find(|job| job.source_url.as_str().ends_with("/now"))
+                .expect("start-now job")
+                .state,
+            DownloadState::Queued
+        );
+        assert_eq!(
+            jobs.iter()
+                .find(|job| job.source_url.as_str().ends_with("/later"))
+                .expect("start-later job")
+                .state,
+            DownloadState::Created
+        );
     }
 
     #[test]
@@ -462,5 +518,80 @@ mod tests {
         assert_eq!(jobs[0].id, replacement);
         assert_eq!(jobs[0].state, DownloadState::Queued);
         assert_eq!(jobs[0].filename, "started.bin");
+    }
+
+    #[test]
+    fn start_pause_resume_and_stop_controls_are_atomic_and_journaled() {
+        let cases = [
+            (
+                DownloadState::Created,
+                JobAction::Start,
+                DownloadState::Probing,
+            ),
+            (
+                DownloadState::Downloading,
+                JobAction::Pause,
+                DownloadState::Pausing,
+            ),
+            (
+                DownloadState::Paused,
+                JobAction::Resume,
+                DownloadState::Queued,
+            ),
+            (
+                DownloadState::Queued,
+                JobAction::Stop,
+                DownloadState::Paused,
+            ),
+        ];
+
+        for (initial, action, expected) in cases {
+            let mut database = Database::open_in_memory().expect("database");
+            let mut job = persisted_job();
+            job.state = initial;
+            database.create_job(&job, None).expect("persist job");
+            let mut service = DesktopService::new(database);
+            let response = service
+                .handle(&request(UiRequest::ControlJob {
+                    job_id: job.id,
+                    action,
+                }))
+                .expect("control response");
+
+            assert!(matches!(
+                response.payload,
+                UiMessage::Response {
+                    response: UiResponse::JobState { job_id, state, .. }
+                } if job_id == job.id && state == expected
+            ));
+            assert_eq!(listed_jobs(&mut service)[0].state, expected);
+            assert_eq!(service.database.events(job.id).expect("events").len(), 1);
+        }
+    }
+
+    #[test]
+    fn invalid_job_control_is_rejected_without_durable_state_change() {
+        let mut database = Database::open_in_memory().expect("database");
+        let mut job = persisted_job();
+        job.state = DownloadState::Completed;
+        job.completed_at = Some(job.updated_at);
+        database.create_job(&job, None).expect("persist job");
+        let mut service = DesktopService::new(database);
+
+        let response = service
+            .handle(&request(UiRequest::ControlJob {
+                job_id: job.id,
+                action: JobAction::Resume,
+            }))
+            .expect("rejection response");
+
+        assert!(matches!(
+            response.payload,
+            UiMessage::Response {
+                response: UiResponse::Rejected { code, .. }
+            } if code == "invalid_job_action"
+        ));
+        assert_eq!(listed_jobs(&mut service)[0].state, DownloadState::Completed);
+        assert_eq!(service.database.events(job.id).expect("events").len(), 0);
     }
 }

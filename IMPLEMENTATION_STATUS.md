@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 4 — Desktop application (next slice: S063)
+- Current milestone: Milestone 4 — Desktop application (next slice: S064)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -72,7 +72,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S060 | DONE | Desktop `virtual-list.test.ts` verifies stable sorting, immutable source order, bounded viewport rows, and the 10,000-row 250 ms budget. |
 | S061 | DONE | Desktop `add-url-dialog.test.ts` plus engine `desktop::tests::url_probe_*` cover valid/invalid HTTP(S), Unicode filenames and paths, metadata preview, and inaccessible destinations; full Rust, TypeScript, and documentation gates pass. |
 | S062 | DONE | Engine `desktop::tests::start_choices_persist_exactly_one_job_in_the_requested_state` and `duplicate_choices_focus_add_or_atomically_replace_one_durable_job`, plus desktop dialog choice mapping; full Rust, TypeScript, and documentation gates pass. |
-| S063 | TODO | — |
+| S063 | DONE | Engine `desktop::tests::start_pause_resume_and_stop_controls_are_atomic_and_journaled` plus invalid-action durability test; desktop `download-list.test.ts` verifies acknowledged controls and optimistic rollback; full gates pass. |
 | S064 | TODO | — |
 | S065 | TODO | — |
 | S066 | TODO | — |

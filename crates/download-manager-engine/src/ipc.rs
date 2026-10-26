@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
 use crate::{
-    domain::{HttpUrl, JobId, JobMetadata, RequestId, ValidationError},
+    domain::{HttpUrl, JobId, JobMetadata, RequestId, UnixMillis, ValidationError},
     state::{DownloadEvent, DownloadState},
 };
 
@@ -79,9 +79,9 @@ pub enum UiRequest {
         start_now: bool,
         duplicate_action: DuplicateAction,
     },
-    TransitionJob {
+    ControlJob {
         job_id: JobId,
-        state: DownloadState,
+        action: JobAction,
     },
 }
 
@@ -91,6 +91,15 @@ pub enum DuplicateAction {
     FocusExisting,
     AddDuplicate,
     ReplaceExisting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobAction {
+    Start,
+    Pause,
+    Resume,
+    Stop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +120,11 @@ pub enum UiResponse {
         destination: PathBuf,
         total_bytes: Option<u64>,
         mime_type: Option<String>,
+    },
+    JobState {
+        job_id: JobId,
+        state: DownloadState,
+        updated_at: UnixMillis,
     },
     Rejected {
         code: String,
@@ -267,7 +281,7 @@ fn reject_unknown_ui_fields(bytes: &[u8]) -> Result<(), ProtocolError> {
                 "duplicate_action",
             ],
         ),
-        Some("transition_job") => validate_object_keys(payload, &["type", "job_id", "state"]),
+        Some("control_job") => validate_object_keys(payload, &["type", "job_id", "action"]),
         _ => Ok(()),
     }
 }
