@@ -4,6 +4,7 @@ import {
   ProtocolViolationError,
   type DownloadEvent,
   type DownloadJob,
+  type DuplicateAction,
   type UiRequest,
   type UiRequestEnvelope,
   type UiResponse,
@@ -23,7 +24,18 @@ export interface EngineLauncher {
 export interface EngineApi {
   listJobs(): Promise<readonly DownloadJob[]>;
   probeUrl(sourceUrl: string, destination: string): Promise<UrlProbe>;
+  addJob(options: AddJobOptions): Promise<string>;
   subscribeToEvents(listener: (event: DownloadEvent) => void): () => void;
+}
+
+export interface AddJobOptions {
+  readonly sourceUrl: string;
+  readonly finalUrl: string;
+  readonly filename: string;
+  readonly destination: string;
+  readonly totalBytes: number | null;
+  readonly startNow: boolean;
+  readonly duplicateAction: DuplicateAction;
 }
 
 type PendingRequest = {
@@ -95,6 +107,25 @@ export class EngineClient implements EngineApi {
       );
     }
     return response;
+  }
+
+  public async addJob(options: AddJobOptions): Promise<string> {
+    const response = await this.#request({
+      type: "add_job",
+      source_url: options.sourceUrl,
+      final_url: options.finalUrl,
+      filename: options.filename,
+      destination: options.destination,
+      total_bytes: options.totalBytes,
+      start_now: options.startNow,
+      duplicate_action: options.duplicateAction,
+    });
+    if (response.type !== "accepted") {
+      throw new ProtocolViolationError(
+        "add request received a non-accepted response",
+      );
+    }
+    return response.job_id;
   }
 
   public subscribeToEvents(

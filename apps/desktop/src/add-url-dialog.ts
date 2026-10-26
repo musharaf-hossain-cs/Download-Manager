@@ -1,5 +1,7 @@
 import type { EngineApi } from "./engine-client.js";
-import type { UrlProbe } from "./protocol.js";
+import type { DuplicateAction, UrlProbe } from "./protocol.js";
+
+export type StartChoice = "now" | "later";
 
 export type AddUrlDialogStatus =
   "editing" | "probing" | "ready" | "invalid" | "error";
@@ -29,7 +31,9 @@ export class AddUrlDialogController {
     message: null,
   };
 
-  public constructor(private readonly engine: Pick<EngineApi, "probeUrl">) {}
+  public constructor(
+    private readonly engine: Pick<EngineApi, "probeUrl" | "addJob">,
+  ) {}
 
   public get state(): AddUrlDialogState {
     return this.#state;
@@ -91,6 +95,24 @@ export class AddUrlDialogController {
       };
       return false;
     }
+  }
+
+  public async submit(
+    start: StartChoice,
+    duplicateAction: DuplicateAction,
+  ): Promise<string> {
+    if (this.#state.status !== "ready" || this.#state.preview === null) {
+      throw new Error("Probe the URL before adding the download");
+    }
+    return this.engine.addJob({
+      sourceUrl: this.#state.url,
+      finalUrl: this.#state.preview.final_url,
+      filename: this.#state.preview.filename,
+      destination: this.#state.destination,
+      totalBytes: this.#state.preview.total_bytes,
+      startNow: start === "now",
+      duplicateAction,
+    });
   }
 }
 

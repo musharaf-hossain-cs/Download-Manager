@@ -1,18 +1,24 @@
 //! Desktop-facing request dispatcher. The desktop never opens engine storage directly.
 
-use std::{fs, fs::OpenOptions, path::Path};
+use std::{
+    fs,
+    fs::OpenOptions,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use thiserror::Error;
 
 use crate::{
     VERSION,
-    domain::{HttpUrl, JobId},
-    filename::{safe_destination, select_filename},
+    domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
+    filename::{safe_destination, sanitize_windows_filename, select_filename},
     ipc::{
-        Envelope, ProtocolError, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse,
-        decode_ui_request,
+        DuplicateAction, Envelope, ProtocolError, UI_PROTOCOL_VERSION, UiMessage, UiRequest,
+        UiResponse, decode_ui_request,
     },
     probe::HttpProbe,
+    state::DownloadState,
     storage::{Database, StorageError},
 };
 
@@ -41,7 +47,7 @@ impl DesktopService {
     /// Returns a protocol error for malformed/unversioned input and a storage error when
     /// persisted jobs cannot be loaded.
     pub fn handle(
-        &self,
+        &mut self,
         encoded_request: &[u8],
     ) -> Result<Envelope<UiMessage>, DesktopServiceError> {
         let request = decode_ui_request(encoded_request)?;
@@ -61,7 +67,24 @@ impl DesktopService {
                 source_url,
                 destination,
             } => probe_url(&source_url, &destination),
-            UiRequest::AddJob { .. } | UiRequest::TransitionJob { .. } => UiResponse::Rejected {
+            UiRequest::AddJob {
+                source_url,
+                final_url,
+                filename,
+                destination,
+                total_bytes,
+                start_now,
+                duplicate_action,
+            } => self.add_job(AddJobInput {
+                source_url,
+                final_url,
+                filename,
+                destination,
+                total_bytes,
+                start_now,
+                duplicate_action,
+            })?,
+            UiRequest::TransitionJob { .. } => UiResponse::Rejected {
                 code: "not_implemented".to_owned(),
                 message: "this desktop command is not available yet".to_owned(),
             },
@@ -72,6 +95,75 @@ impl DesktopService {
             UiMessage::Response { response },
         ))
     }
+
+    fn add_job(&mut self, input: AddJobInput) -> Result<UiResponse, StorageError> {
+        let existing = self.database.list_jobs()?.into_iter().find(|job| {
+            job.metadata.source_url == input.source_url
+                || job.metadata.final_url.as_ref() == Some(&input.final_url)
+        });
+        if input.duplicate_action == DuplicateAction::FocusExisting
+            && let Some(existing) = existing
+        {
+            return Ok(UiResponse::Accepted {
+                job_id: existing.metadata.id,
+            });
+        }
+        let now = current_time();
+        let metadata = JobMetadata {
+            id: JobId::new(),
+            display_url: input.source_url.to_string(),
+            source_url: input.source_url,
+            final_url: Some(input.final_url),
+            filename: sanitize_windows_filename(&input.filename),
+            destination: input.destination,
+            state: if input.start_now {
+                DownloadState::Queued
+            } else {
+                DownloadState::Created
+            },
+            kind: DownloadKind::File,
+            total_bytes: input.total_bytes,
+            downloaded_bytes: 0,
+            category: None,
+            queue: None,
+            priority: Priority::Normal,
+            source_browser: None,
+            source_profile: None,
+            retry_count: 0,
+            error: None,
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+        };
+        if input.duplicate_action == DuplicateAction::ReplaceExisting
+            && let Some(existing) = existing
+        {
+            self.database.replace_job(existing.metadata.id, &metadata)?;
+        } else {
+            self.database.create_job(&metadata, None)?;
+        }
+        Ok(UiResponse::Accepted {
+            job_id: metadata.id,
+        })
+    }
+}
+
+struct AddJobInput {
+    source_url: HttpUrl,
+    final_url: HttpUrl,
+    filename: String,
+    destination: PathBuf,
+    total_bytes: Option<u64>,
+    start_now: bool,
+    duplicate_action: DuplicateAction,
+}
+
+fn current_time() -> UnixMillis {
+    let milliseconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    UnixMillis::new(i64::try_from(milliseconds).unwrap_or(i64::MAX)).expect("bounded timestamp")
 }
 
 fn probe_url(source_url: &HttpUrl, destination: &Path) -> UiResponse {
@@ -127,7 +219,7 @@ mod tests {
 
     use crate::{
         domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, RequestId, UnixMillis},
-        ipc::{Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
+        ipc::{DuplicateAction, Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
         state::DownloadState,
         storage::Database,
         test_support::{Fixture, FixtureServer},
@@ -169,12 +261,50 @@ mod tests {
         .expect("serialize request")
     }
 
+    fn add_request(source_url: &str, start_now: bool, action: DuplicateAction) -> UiRequest {
+        UiRequest::AddJob {
+            source_url: HttpUrl::parse(source_url).expect("source URL"),
+            final_url: HttpUrl::parse(source_url).expect("final URL"),
+            filename: if start_now {
+                "started.bin".to_owned()
+            } else {
+                "later.bin".to_owned()
+            },
+            destination: PathBuf::from(r"C:\Downloads"),
+            total_bytes: Some(42),
+            start_now,
+            duplicate_action: action,
+        }
+    }
+
+    fn accepted_id(service: &mut DesktopService, payload: UiRequest) -> JobId {
+        let response = service.handle(&request(payload)).expect("add response");
+        match response.payload {
+            UiMessage::Response {
+                response: UiResponse::Accepted { job_id },
+            } => job_id,
+            other => panic!("expected accepted response, got {other:?}"),
+        }
+    }
+
+    fn listed_jobs(service: &mut DesktopService) -> Vec<JobMetadata> {
+        let response = service
+            .handle(&request(UiRequest::ListJobs))
+            .expect("list response");
+        match response.payload {
+            UiMessage::Response {
+                response: UiResponse::Jobs { jobs },
+            } => jobs,
+            other => panic!("expected jobs response, got {other:?}"),
+        }
+    }
+
     #[test]
     fn health_and_persisted_jobs_are_dispatched_over_typed_ipc() {
         let mut database = Database::open_in_memory().expect("database");
         let job = persisted_job();
         database.create_job(&job, None).expect("persist job");
-        let service = DesktopService::new(database);
+        let mut service = DesktopService::new(database);
 
         let health = service
             .handle(&request(UiRequest::Health))
@@ -199,7 +329,7 @@ mod tests {
 
     #[test]
     fn malformed_desktop_input_is_rejected_before_dispatch() {
-        let service = DesktopService::new(Database::open_in_memory().expect("database"));
+        let mut service = DesktopService::new(Database::open_in_memory().expect("database"));
         assert!(
             service
                 .handle(br#"{"version":1,"unexpected":true}"#)
@@ -221,7 +351,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("temp directory");
         let unicode_directory = directory.path().join("ডাউনলোড");
         fs::create_dir(&unicode_directory).expect("unicode directory");
-        let service = DesktopService::new(Database::open_in_memory().expect("database"));
+        let mut service = DesktopService::new(Database::open_in_memory().expect("database"));
 
         let response = service
             .handle(&request(UiRequest::ProbeUrl {
@@ -259,8 +389,78 @@ mod tests {
 
     #[test]
     fn url_probe_rejects_invalid_url_before_dispatch() {
-        let service = DesktopService::new(Database::open_in_memory().expect("database"));
+        let mut service = DesktopService::new(Database::open_in_memory().expect("database"));
         let encoded = br#"{"version":1,"request_id":"018f47ce-8e51-7f31-a1ec-4a97f84a12cd","payload":{"type":"probe_url","source_url":"file:///secret","destination":"C:\\Downloads"}}"#;
         assert!(service.handle(encoded).is_err());
+    }
+
+    #[test]
+    fn start_choices_persist_exactly_one_job_in_the_requested_state() {
+        let mut service = DesktopService::new(Database::open_in_memory().expect("database"));
+        accepted_id(
+            &mut service,
+            add_request(
+                "https://example.test/now",
+                true,
+                DuplicateAction::AddDuplicate,
+            ),
+        );
+        accepted_id(
+            &mut service,
+            add_request(
+                "https://example.test/later",
+                false,
+                DuplicateAction::AddDuplicate,
+            ),
+        );
+
+        let jobs = listed_jobs(&mut service);
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].state, DownloadState::Queued);
+        assert_eq!(jobs[1].state, DownloadState::Created);
+    }
+
+    #[test]
+    fn duplicate_choices_focus_add_or_atomically_replace_one_durable_job() {
+        let source = "https://example.test/duplicate";
+
+        let mut focus = DesktopService::new(Database::open_in_memory().expect("database"));
+        let original = accepted_id(
+            &mut focus,
+            add_request(source, false, DuplicateAction::AddDuplicate),
+        );
+        let focused = accepted_id(
+            &mut focus,
+            add_request(source, true, DuplicateAction::FocusExisting),
+        );
+        assert_eq!(focused, original);
+        assert_eq!(listed_jobs(&mut focus).len(), 1);
+
+        let mut add = DesktopService::new(Database::open_in_memory().expect("database"));
+        accepted_id(
+            &mut add,
+            add_request(source, false, DuplicateAction::AddDuplicate),
+        );
+        accepted_id(
+            &mut add,
+            add_request(source, true, DuplicateAction::AddDuplicate),
+        );
+        assert_eq!(listed_jobs(&mut add).len(), 2);
+
+        let mut replace = DesktopService::new(Database::open_in_memory().expect("database"));
+        let replaced = accepted_id(
+            &mut replace,
+            add_request(source, false, DuplicateAction::AddDuplicate),
+        );
+        let replacement = accepted_id(
+            &mut replace,
+            add_request(source, true, DuplicateAction::ReplaceExisting),
+        );
+        let jobs = listed_jobs(&mut replace);
+        assert_ne!(replacement, replaced);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, replacement);
+        assert_eq!(jobs[0].state, DownloadState::Queued);
+        assert_eq!(jobs[0].filename, "started.bin");
     }
 }

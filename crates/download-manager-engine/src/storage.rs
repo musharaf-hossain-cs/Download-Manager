@@ -173,6 +173,26 @@ impl Database {
         Ok(())
     }
 
+    /// Atomically removes one duplicate record and inserts its replacement.
+    pub(crate) fn replace_job(
+        &mut self,
+        replaced_id: JobId,
+        metadata: &JobMetadata,
+    ) -> Result<(), StorageError> {
+        metadata.validate()?;
+        let transaction = self.connection.transaction()?;
+        let changed =
+            transaction.execute("DELETE FROM jobs WHERE id=?1", [replaced_id.to_string()])?;
+        if changed == 0 {
+            return Err(StorageError::Corrupt(format!(
+                "job {replaced_id} does not exist"
+            )));
+        }
+        insert_job(&transaction, metadata)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     /// Replaces all mutable metadata for an existing job.
     ///
     /// # Errors

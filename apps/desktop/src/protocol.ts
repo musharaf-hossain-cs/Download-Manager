@@ -21,6 +21,8 @@ export type DownloadState =
 
 export type DownloadKind = "file" | "media";
 export type DownloadPriority = "low" | "normal" | "high";
+export type DuplicateAction =
+  "focus_existing" | "add_duplicate" | "replace_existing";
 
 /** Complete, non-secret job metadata returned by the engine. */
 export interface DownloadJob {
@@ -65,8 +67,12 @@ export type UiRequest =
   | {
       readonly type: "add_job";
       readonly source_url: string;
-      readonly filename: string | null;
+      readonly final_url: string;
+      readonly filename: string;
+      readonly destination: string;
+      readonly total_bytes: number | null;
       readonly start_now: boolean;
+      readonly duplicate_action: DuplicateAction;
     }
   | {
       readonly type: "transition_job";

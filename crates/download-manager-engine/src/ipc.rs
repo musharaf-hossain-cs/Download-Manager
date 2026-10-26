@@ -72,13 +72,25 @@ pub enum UiRequest {
     },
     AddJob {
         source_url: HttpUrl,
-        filename: Option<String>,
+        final_url: HttpUrl,
+        filename: String,
+        destination: PathBuf,
+        total_bytes: Option<u64>,
         start_now: bool,
+        duplicate_action: DuplicateAction,
     },
     TransitionJob {
         job_id: JobId,
         state: DownloadState,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateAction {
+    FocusExisting,
+    AddDuplicate,
+    ReplaceExisting,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,9 +254,19 @@ fn reject_unknown_ui_fields(bytes: &[u8]) -> Result<(), ProtocolError> {
     match payload.get("type").and_then(serde_json::Value::as_str) {
         Some("health" | "list_jobs") => validate_object_keys(payload, &["type"]),
         Some("probe_url") => validate_object_keys(payload, &["type", "source_url", "destination"]),
-        Some("add_job") => {
-            validate_object_keys(payload, &["type", "source_url", "filename", "start_now"])
-        }
+        Some("add_job") => validate_object_keys(
+            payload,
+            &[
+                "type",
+                "source_url",
+                "final_url",
+                "filename",
+                "destination",
+                "total_bytes",
+                "start_now",
+                "duplicate_action",
+            ],
+        ),
         Some("transition_job") => validate_object_keys(payload, &["type", "job_id", "state"]),
         _ => Ok(()),
     }
