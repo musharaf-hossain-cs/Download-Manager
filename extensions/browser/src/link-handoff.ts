@@ -24,7 +24,18 @@ export interface NativeDownloadMessenger {
 
 export interface BrowserDownloadControl {
   cancel(downloadId: number): Promise<void>;
+  fallback(details: {
+    readonly downloadId: number;
+    readonly url: string;
+    readonly reason: BrowserFallbackReason;
+  }): Promise<void>;
 }
+
+export type BrowserFallbackReason =
+  | "native_unavailable"
+  | "native_rejected"
+  | "invalid_response"
+  | "native_timeout";
 
 export type LinkHandoffResult =
   | { readonly kind: "accepted"; readonly jobId: string }
@@ -32,11 +43,7 @@ export type LinkHandoffResult =
       readonly kind: "ignored";
       readonly reason: "ineligible" | "duplicate";
     }
-  | {
-      readonly kind: "rejected";
-      readonly reason:
-        "native_unavailable" | "native_rejected" | "invalid_response";
-    };
+  | { readonly kind: "fallback"; readonly reason: BrowserFallbackReason };
 
 /** Sends one eligible browser download and cancels it only after native ACK. */
 export class LinkHandoffController {
@@ -49,7 +56,12 @@ export class LinkHandoffController {
     private readonly createContext: (
       candidate: BrowserDownloadCandidate,
     ) => HandoffRequestContext,
-  ) {}
+    private readonly handoffTimeoutMs = 3_000,
+  ) {
+    if (!Number.isFinite(handoffTimeoutMs) || handoffTimeoutMs <= 0) {
+      throw new RangeError("handoff timeout must be positive");
+    }
+  }
 
   public async handoff(
     candidate: BrowserDownloadCandidate,
@@ -62,7 +74,7 @@ export class LinkHandoffController {
     this.#handledDownloads.add(candidate.downloadId);
 
     if (this.health.state !== "connected") {
-      return { kind: "rejected", reason: "native_unavailable" };
+      return this.#fallback(candidate, "native_unavailable");
     }
     const context = this.createContext(normalized);
     const payload = {
@@ -82,20 +94,55 @@ export class LinkHandoffController {
 
     let response: unknown;
     try {
-      response = await this.messenger.send(request);
+      response = await withTimeout(
+        this.messenger.send(request),
+        this.handoffTimeoutMs,
+      );
     } catch {
-      return { kind: "rejected", reason: "native_unavailable" };
+      return this.#fallback(candidate, "native_unavailable");
+    }
+    if (response === NATIVE_TIMEOUT) {
+      return this.#fallback(candidate, "native_timeout");
     }
     if (isRejectedResponse(response, context.requestId)) {
-      return { kind: "rejected", reason: "native_rejected" };
+      return this.#fallback(candidate, "native_rejected");
     }
     const jobId = acceptedJobId(response, context.requestId);
     if (jobId === null) {
-      return { kind: "rejected", reason: "invalid_response" };
+      return this.#fallback(candidate, "invalid_response");
     }
 
     await this.browser.cancel(candidate.downloadId);
     return { kind: "accepted", jobId };
+  }
+
+  async #fallback(
+    candidate: BrowserDownloadCandidate,
+    reason: BrowserFallbackReason,
+  ): Promise<LinkHandoffResult> {
+    await this.browser.fallback({
+      downloadId: candidate.downloadId,
+      url: candidate.url,
+      reason,
+    });
+    return { kind: "fallback", reason };
+  }
+}
+
+const NATIVE_TIMEOUT = Symbol("native timeout");
+
+async function withTimeout(
+  response: Promise<unknown>,
+  timeoutMs: number,
+): Promise<unknown | typeof NATIVE_TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof NATIVE_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(NATIVE_TIMEOUT), timeoutMs);
+  });
+  try {
+    return await Promise.race([response, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

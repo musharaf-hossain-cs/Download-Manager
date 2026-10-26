@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   LinkHandoffController,
@@ -37,6 +37,9 @@ describe("eligible link handoff", () => {
       {
         async cancel(downloadId) {
           events.push(`browser-cancel:${downloadId}`);
+        },
+        async fallback() {
+          events.push("browser-fallback");
         },
       },
       () => ({
@@ -94,6 +97,9 @@ describe("eligible link handoff", () => {
         async cancel() {
           cancels += 1;
         },
+        async fallback() {
+          throw new Error("ineligible downloads must not fallback");
+        },
       },
       () => ({ requestId: "id", nonce: "abcdefghijklmnop", extensionId: "id" }),
     );
@@ -121,6 +127,7 @@ describe("eligible link handoff", () => {
       },
     ];
     let cancels = 0;
+    const fallbacks: unknown[] = [];
     for (const [index, nativeResponse] of responses.entries()) {
       const controller = new LinkHandoffController(
         { state: "connected" },
@@ -133,6 +140,9 @@ describe("eligible link handoff", () => {
           async cancel() {
             cancels += 1;
           },
+          async fallback(details) {
+            fallbacks.push(details);
+          },
         },
         () => ({
           requestId: "request-1",
@@ -144,8 +154,75 @@ describe("eligible link handoff", () => {
         ...candidate,
         downloadId: index,
       });
-      expect(result.kind).toBe("rejected");
+      expect(result.kind).toBe("fallback");
     }
     expect(cancels).toBe(0);
+    expect(fallbacks).toEqual([
+      expect.objectContaining({ downloadId: 0, reason: "native_rejected" }),
+      expect.objectContaining({ downloadId: 1, reason: "invalid_response" }),
+    ]);
+  });
+
+  it("falls back once with the original link when the app is offline", async () => {
+    const fallbacks: unknown[] = [];
+    const controller = new LinkHandoffController(
+      { state: "disconnected" },
+      {
+        async send() {
+          throw new Error("must not send while disconnected");
+        },
+      },
+      {
+        async cancel() {
+          throw new Error("offline handoff must not cancel");
+        },
+        async fallback(details) {
+          fallbacks.push(details);
+        },
+      },
+      () => ({ requestId: "id", nonce: "abcdefghijklmnop", extensionId: "id" }),
+    );
+
+    await expect(controller.handoff(candidate)).resolves.toEqual({
+      kind: "fallback",
+      reason: "native_unavailable",
+    });
+    expect(fallbacks).toEqual([
+      { downloadId: 42, url: candidate.url, reason: "native_unavailable" },
+    ]);
+  });
+
+  it("falls back on a bounded native timeout without cancelling", async () => {
+    vi.useFakeTimers();
+    const fallbacks: unknown[] = [];
+    try {
+      const controller = new LinkHandoffController(
+        { state: "connected" },
+        { send: () => new Promise(() => undefined) },
+        {
+          async cancel() {
+            throw new Error("timed out handoff must not cancel");
+          },
+          async fallback(details) {
+            fallbacks.push(details);
+          },
+        },
+        () => ({
+          requestId: "request-1",
+          nonce: "abcdefghijklmnop",
+          extensionId: "abcdefghijklmnopabcdefghijklmnop",
+        }),
+        500,
+      );
+      const result = controller.handoff(candidate);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(result).resolves.toEqual({
+        kind: "fallback",
+        reason: "native_timeout",
+      });
+      expect(fallbacks).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
