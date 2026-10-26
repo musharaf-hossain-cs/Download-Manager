@@ -15,6 +15,55 @@ struct ResponseEnvelope {
     payload: ExtensionResponse,
 }
 
+/// Authorizes a decoded request against the browser-authenticated launch
+/// origin, a packaged extension-ID allowlist, and an opaque current-user
+/// identity supplied by the platform boundary.
+///
+/// The request's self-declared extension ID is never sufficient by itself: it
+/// must exactly match the ID authenticated by the launch origin.
+///
+/// # Errors
+/// Returns [`ErrorKind::PermissionDenied`] for an invalid/unlisted origin, an
+/// envelope-ID mismatch, or a cross-user connection.
+pub fn authorize_native_request(
+    launch_origin: &str,
+    request: &ExtensionEnvelope,
+    packaged_extension_ids: &[&str],
+    current_user_identity: &str,
+    browser_user_identity: &str,
+) -> io::Result<()> {
+    if current_user_identity.is_empty() || current_user_identity != browser_user_identity {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "native messaging peer is not the current user",
+        ));
+    }
+
+    let Some(extension_id) = launch_origin
+        .strip_prefix("chrome-extension://")
+        .and_then(|origin| origin.strip_suffix('/'))
+        .filter(|id| !id.is_empty() && !id.contains(['/', '?', '#']))
+    else {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "invalid browser extension origin",
+        ));
+    };
+    if !packaged_extension_ids.contains(&extension_id) {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "browser extension is not allowlisted",
+        ));
+    }
+    if request.extension_id != extension_id {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "request extension ID does not match launch origin",
+        ));
+    }
+    Ok(())
+}
+
 /// Runs one native-messaging stream until the browser closes its input.
 ///
 /// Each request is a four-byte little-endian length followed by one strict,
@@ -115,7 +164,9 @@ mod tests {
         },
     };
 
-    use super::run_native_messaging_session;
+    use super::{authorize_native_request, run_native_messaging_session};
+
+    const PACKAGED_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
 
     struct ChunkedReader<R> {
         inner: R,
@@ -232,5 +283,70 @@ mod tests {
         )
         .expect_err("broken output must fail");
         assert_eq!(error.kind(), ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn packaged_origin_and_matching_current_user_are_authorized() {
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::Health,
+        };
+
+        authorize_native_request(
+            &format!("chrome-extension://{PACKAGED_ID}/"),
+            &request,
+            &[PACKAGED_ID],
+            "S-1-5-21-current",
+            "S-1-5-21-current",
+        )
+        .expect("authorized request");
+    }
+
+    #[test]
+    fn wrong_origin_payload_id_and_user_are_rejected() {
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::Health,
+        };
+        for (origin, user, peer) in [
+            ("https://example.test/", "current", "current"),
+            (
+                "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/",
+                "current",
+                "current",
+            ),
+            (
+                "chrome-extension://abcdefghijklmnopabcdefghijklmnop/path",
+                "current",
+                "current",
+            ),
+            (
+                "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+                "current",
+                "other",
+            ),
+        ] {
+            let error = authorize_native_request(origin, &request, &[PACKAGED_ID], user, peer)
+                .expect_err("request must be rejected");
+            assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+        }
+
+        let mut forged_request = request;
+        forged_request.extension_id = "ponmlkjihgfedcbaponmlkjihgfedcba".to_owned();
+        let error = authorize_native_request(
+            &format!("chrome-extension://{PACKAGED_ID}/"),
+            &forged_request,
+            &[PACKAGED_ID],
+            "current",
+            "current",
+        )
+        .expect_err("payload ID cannot override origin");
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
     }
 }

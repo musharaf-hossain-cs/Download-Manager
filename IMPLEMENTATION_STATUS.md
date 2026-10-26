@@ -89,7 +89,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S077 | DONE | Desktop `localization.test.ts` verifies complete externalized English/Bangla catalogs, locale fallback, missing/unknown-key rejection, and Unicode-safe 30% text-expansion fixtures; full desktop tests and typecheck pass. |
 | S078 | DONE | Desktop `accessibility.test.ts` automated scan verifies named application/toolbar/grid roles, column and row semantics, non-color state cues, and Windows high-contrast tokens; deterministic keyboard walkthrough verifies roving focus, disabled-control skipping, activation, reverse navigation, and a visible focus ring; full TypeScript gates pass. |
 | S079 | DONE | Native-host `partial_reads_produce_one_framed_validated_response`, oversize/invalid-frame rejection, truncated-input, and broken-pipe tests pass; targeted format, clippy, and Rust tests pass. |
-| S080 | TODO | — |
+| S080 | DONE | Native-host packaged-origin/current-user rejection tests verify exact allowlisting and envelope binding; `authorized_browser_origin_receives_health_response` proves the browser launch contract; full Rust/document gates pass. |
 | S081 | TODO | — |
 | S082 | DONE | Extension manifest tests verify a clean-installable MV3 shell, `nativeMessaging`-only least permissions/no site access, and packaged-code-only CSP; full TypeScript quality gates pass. |
 | S083 | TODO | — |
