@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Download Manager",
+  "description": "Send selected downloads to the local Download Manager application.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "120",
+  "permissions": ["nativeMessaging"],
+  "action": {
+    "default_title": "Download Manager"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

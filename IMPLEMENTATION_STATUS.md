@@ -91,7 +91,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S079 | TODO | — |
 | S080 | TODO | — |
 | S081 | TODO | — |
-| S082 | TODO | — |
+| S082 | DONE | Extension manifest tests verify a clean-installable MV3 shell, `nativeMessaging`-only least permissions/no site access, and packaged-code-only CSP; full TypeScript quality gates pass. |
 | S083 | TODO | — |
 | S084 | TODO | — |
 | S085 | TODO | — |
