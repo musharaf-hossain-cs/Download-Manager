@@ -37,6 +37,7 @@ class FakePort implements NativeHealthPort {
 function fixture() {
   const port = new FakePort();
   const badges: Array<{ text: string; title: string }> = [];
+  const diagnostics: unknown[] = [];
   let connectedHost = "";
   const bridge: NativeHealthBridge = {
     connectNative(hostName) {
@@ -46,6 +47,9 @@ function fixture() {
     setBadge(badge) {
       badges.push(badge);
     },
+    openDiagnostics(diagnostic) {
+      diagnostics.push(diagnostic);
+    },
   };
   const health = new NativeConnectionHealth(bridge, "0.1.0");
   health.connect({
@@ -53,7 +57,7 @@ function fixture() {
     nonce: "abcdefghijklmnop",
     extensionId: "abcdefghijklmnopabcdefghijklmnop",
   });
-  return { badges, connectedHost, health, port };
+  return { badges, connectedHost, diagnostics, health, port };
 }
 
 describe("native connection health", () => {
@@ -108,5 +112,27 @@ describe("native connection health", () => {
         title: expect.stringContaining("mismatch"),
       });
     }
+  });
+
+  it("opens diagnostics with the exact version mismatch and repair action", () => {
+    const { diagnostics, health, port } = fixture();
+    port.respond({
+      version: EXTENSION_PROTOCOL_VERSION,
+      request_id: "018f47ce-8e51-7f31-a1ec-4a97f84a12cd",
+      payload: { type: "healthy", host_version: "9.0.0" },
+    });
+
+    health.openDiagnostics();
+
+    expect(diagnostics).toEqual([
+      {
+        code: "host_version_mismatch",
+        expectedProtocolVersion: 1,
+        actualProtocolVersion: 1,
+        expectedHostVersion: "0.1.0",
+        actualHostVersion: "9.0.0",
+        recommendedAction: expect.stringContaining("reinstall"),
+      },
+    ]);
   });
 });

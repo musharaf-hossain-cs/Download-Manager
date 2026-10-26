@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 5 is complete through S094.** Chromium now has bounded protected handoff, normalized single/all/selected-link collection, native batch review controls, browser/profile metadata isolation, and default-off incognito handling whose explicitly enabled metadata remains session-only. Version-mismatch diagnostics begin at S095.
+> **Project status: Milestone 5 is complete.** Chromium now has bounded protected handoff, normalized single/all/selected-link collection, native batch review controls, browser/profile metadata isolation, default-off incognito handling, and actionable version/registration self-check and repair. Firefox integration begins at S096.
 
 ## Goals
 
