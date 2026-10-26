@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import manifestJson from "../manifest.json" with { type: "json" };
+import firefoxManifestJson from "../manifest.firefox.json" with { type: "json" };
 import {
   installSingleLinkContextMenu,
   SINGLE_LINK_CONTEXT_MENU_ID,
@@ -22,7 +23,20 @@ interface ChromiumManifest {
   readonly web_accessible_resources?: readonly unknown[];
 }
 
+interface FirefoxManifest extends ChromiumManifest {
+  readonly browser_specific_settings?: {
+    readonly gecko?: {
+      readonly id?: string;
+      readonly strict_min_version?: string;
+      readonly data_collection_permissions?: {
+        readonly required?: readonly string[];
+      };
+    };
+  };
+}
+
 const manifest: ChromiumManifest = manifestJson;
+const firefoxManifest: FirefoxManifest = firefoxManifestJson;
 
 describe("Chromium extension manifest", () => {
   it("is a clean-installable Manifest V3 shell", () => {
@@ -53,6 +67,31 @@ describe("Chromium extension manifest", () => {
 
     expect(policy).toBe("script-src 'self'; object-src 'self'");
     expect(JSON.stringify(manifest)).not.toMatch(/https?:\/\//u);
+  });
+});
+
+describe("Firefox extension manifest", () => {
+  it("keeps the shared extension identity and least-permission contract", () => {
+    expect(firefoxManifest).toMatchObject({
+      manifest_version: manifest.manifest_version,
+      name: manifest.name,
+      description: manifest.description,
+      version: manifest.version,
+      permissions: manifest.permissions,
+      action: manifest.action,
+      content_security_policy: manifest.content_security_policy,
+      incognito: "spanning",
+      browser_specific_settings: {
+        gecko: {
+          id: "download-manager@musharaf-hossain-cs.github.io",
+          strict_min_version: "140.0",
+          data_collection_permissions: { required: ["none"] },
+        },
+      },
+    });
+    expect(firefoxManifest.host_permissions).toBeUndefined();
+    expect(firefoxManifest.content_scripts).toBeUndefined();
+    expect(firefoxManifest.web_accessible_resources).toBeUndefined();
   });
 });
 

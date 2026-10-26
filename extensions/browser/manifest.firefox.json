@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Download Manager",
+  "description": "Send selected downloads to the local Download Manager application.",
+  "version": "0.1.0",
+  "incognito": "spanning",
+  "permissions": ["nativeMessaging", "downloads", "contextMenus"],
+  "action": {
+    "default_title": "Download Manager"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "download-manager@musharaf-hossain-cs.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

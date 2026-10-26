@@ -105,7 +105,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S093 | DONE | Extension `browser-profile.test.ts` verifies browser/profile composite identity, two-profile metadata isolation, cross-browser separation, and invalid identity rejection; full TypeScript gates pass. |
 | S094 | DONE | Extension `browser-profile.test.ts` verifies incognito default-off rejection, explicit session opt-in, end-of-session clearing, and zero private persistence calls; manifest tests verify split incognito execution; full TypeScript gates pass. |
 | S095 | DONE | Desktop `browser-integration-diagnostics.test.ts` verifies healthy and broken extension/version, Chrome/Edge registration, manifest, executable, allowlist, connection, protocol, and native-host fixtures plus deduplicated repair/recheck and failure preservation; extension `connection-health.test.ts` verifies exact mismatch evidence opens the repair flow; full verification gates pass. |
-| S096 | TODO | — |
+| S096 | DONE | Firefox Manifest V3 shares the Chromium identity/permissions and compiled TypeScript source; `web-ext` 10.8.0 lint and reproducible ZIP build pass, with focused manifest tests and full TypeScript/document gates green. |
 | S097 | TODO | — |
 | S098 | TODO | — |
 | S099 | TODO | — |
