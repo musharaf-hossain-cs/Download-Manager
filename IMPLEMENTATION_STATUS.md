@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 5 — Chromium browser integration (next slice: S084)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S085)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -93,7 +93,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S081 | DONE | `test-native-host-dev.ps1` verifies isolated HKCU-shaped Chrome/Edge register, framed health connect, exact-origin manifest, and unregister cleanup without elevation or real-registry changes. |
 | S082 | DONE | Extension manifest tests verify a clean-installable MV3 shell, `nativeMessaging`-only least permissions/no site access, and packaged-code-only CSP; full TypeScript quality gates pass. |
 | S083 | DONE | Extension `connection-health.test.ts` verifies correlated connected state, native-port disconnection, host/protocol version mismatch, and distinct non-color badge states; full TypeScript gates pass. |
-| S084 | TODO | — |
+| S084 | DONE | Extension `link-handoff.test.ts` verifies one eligible native request, exactly one accepted job ID, acknowledgment-before-browser-cancel ordering, duplicate suppression, and no cancel on rejection/invalid response; full TypeScript gates pass. |
 | S085 | TODO | — |
 | S086 | TODO | — |
 | S087 | TODO | — |

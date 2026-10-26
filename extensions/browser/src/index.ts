@@ -14,3 +14,4 @@ export const extensionIdentity: ExtensionIdentity = Object.freeze({
 
 export * from "./protocol.js";
 export * from "./connection-health.js";
+export * from "./link-handoff.js";

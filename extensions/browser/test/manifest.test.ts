@@ -30,8 +30,8 @@ describe("Chromium extension manifest", () => {
     expect(manifest.background).toBeUndefined();
   });
 
-  it("requests only the native bridge permission and no site access", () => {
-    expect(manifest.permissions).toEqual(["nativeMessaging"]);
+  it("requests only native handoff permissions and no site access", () => {
+    expect(manifest.permissions).toEqual(["nativeMessaging", "downloads"]);
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.web_accessible_resources).toBeUndefined();
