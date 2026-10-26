@@ -146,8 +146,8 @@ describe("Firefox link interception", () => {
       createContext: () => context(),
     });
 
-    adapter.install();
-    adapter.install();
+    adapter.install(() => true);
+    adapter.install(() => true);
     expect(downloads.listener()).toBeTypeOf("function");
     adapter.uninstall();
     adapter.uninstall();

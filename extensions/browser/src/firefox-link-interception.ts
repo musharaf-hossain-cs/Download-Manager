@@ -13,7 +13,13 @@ export interface FirefoxDownloadItem {
   readonly url: string;
   readonly filename?: string;
   readonly referrer?: string;
+  readonly mime?: string;
+  readonly totalBytes?: number;
 }
+
+export type FirefoxDownloadPreflight = (
+  item: FirefoxDownloadItem,
+) => boolean | Promise<boolean>;
 
 export interface FirefoxDownloadsApi {
   readonly onCreated: {
@@ -48,10 +54,11 @@ export class FirefoxLinkInterception {
   readonly #controller: LinkHandoffController;
   readonly #downloads: FirefoxDownloadsApi;
   readonly #onError: (error: unknown) => void;
+  #preflight: FirefoxDownloadPreflight | undefined;
   #installed = false;
 
   readonly #createdListener = (item: FirefoxDownloadItem): void => {
-    void this.intercept(item).catch(this.#onError);
+    void this.#interceptEligible(item).catch(this.#onError);
   };
 
   public constructor(options: FirefoxLinkInterceptionOptions) {
@@ -73,8 +80,9 @@ export class FirefoxLinkInterception {
     );
   }
 
-  public install(): void {
+  public install(preflight: FirefoxDownloadPreflight): void {
     if (this.#installed) return;
+    this.#preflight = preflight;
     this.#downloads.onCreated.addListener(this.#createdListener);
     this.#installed = true;
   }
@@ -82,6 +90,7 @@ export class FirefoxLinkInterception {
   public uninstall(): void {
     if (!this.#installed) return;
     this.#downloads.onCreated.removeListener(this.#createdListener);
+    this.#preflight = undefined;
     this.#installed = false;
   }
 
@@ -92,6 +101,10 @@ export class FirefoxLinkInterception {
       referrer: item.referrer ?? null,
       suggestedFilename: suggestedFilename(item.filename),
     });
+  }
+
+  async #interceptEligible(item: FirefoxDownloadItem): Promise<void> {
+    if (await this.#preflight?.(item)) await this.intercept(item);
   }
 }
 

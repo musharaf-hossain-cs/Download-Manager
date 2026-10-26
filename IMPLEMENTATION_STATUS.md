@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 6 — Firefox and browser regression (next slice: S098)
+- Current milestone: Milestone 6 — Firefox and browser regression (next slice: S100)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -108,7 +108,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S096 | DONE | Firefox Manifest V3 shares the Chromium identity/permissions and compiled TypeScript source; `web-ext` 10.8.0 lint and ZIP build pass, with focused manifest tests and full TypeScript/document gates green. |
 | S097 | DONE | Firefox `allowed_extensions` manifest/HKCU registration smoke passes; native-host unit/process tests bind the exact manifest path plus add-on ID to the running executable, packaged allowlist, request envelope, and current user while rejecting wrong IDs/manifests. |
 | S098 | DONE | Extension `firefox-link-interception.test.ts` runs stable/ESR fixtures through the shared handoff contract, proving one request/job, accepted-ACK-before-cancel ordering, duplicate suppression, optional-field compatibility, and untouched browser transfers for offline/rejected/timed-out fallbacks; full TypeScript/document gates pass. |
-| S099 | TODO | — |
+| S099 | DONE | Extension `firefox-browser-behavior.test.ts` runs stable/ESR shared contracts for filtered installed interception, site/type rules, force/bypass keys, and single/all/selected context menus with bounded normalized batches; full TypeScript/document gates pass. |
 | S100 | TODO | — |
 | S101 | TODO | — |
 | S102 | TODO | — |
