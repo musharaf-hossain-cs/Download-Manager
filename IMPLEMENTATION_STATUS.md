@@ -86,7 +86,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S074 | DONE | Desktop `clipboard.test.ts` verifies opt-in detection, HTTP(S) validation, normalized duplicate debounce, and prompt re-entry after the debounce window; full TypeScript gates pass. |
 | S075 | DONE | Desktop `drag-drop.test.ts` verifies ordered URL/text/list normalization, Unicode URLs, duplicate reporting, and positioned invalid/unsupported item reports; full TypeScript gates pass. |
 | S076 | DONE | Desktop `desktop-actions.test.ts` verifies persisted/clamped floating-target state, enabled-only normalized drops, exact completed-file/folder paths, and persistence rollback; full desktop tests and typecheck pass. |
-| S077 | TODO | — |
+| S077 | DONE | Desktop `localization.test.ts` verifies complete externalized English/Bangla catalogs, locale fallback, missing/unknown-key rejection, and Unicode-safe 30% text-expansion fixtures; full desktop tests and typecheck pass. |
 | S078 | TODO | — |
 | S079 | TODO | — |
 | S080 | TODO | — |

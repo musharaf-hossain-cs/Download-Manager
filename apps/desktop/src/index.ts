@@ -19,6 +19,7 @@ export * from "./drag-drop.js";
 export * from "./download-list.js";
 export * from "./engine-client.js";
 export * from "./history.js";
+export * from "./localization.js";
 export * from "./notifications.js";
 export * from "./progress.js";
 export * from "./segment-detail.js";
