@@ -20,3 +20,4 @@ export * from "./site-rules.js";
 export * from "./modifier-keys.js";
 export * from "./single-link-context-menu.js";
 export * from "./all-links.js";
+export * from "./selected-links.js";

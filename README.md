@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 5 is complete through S090.** Chromium now has bounded native messaging, protected acknowledged handoff with lossless fallback, MIME/extension/size and site capture policies, force/bypass keys, a single-link context command, and responsive bounded all-links collection. Selected-links collection begins at S091.
+> **Project status: Milestone 5 is complete through S091.** Chromium now has bounded native messaging, protected acknowledged handoff with lossless fallback, capture policies and modifier keys, plus normalized single-link, all-links, and selection-only collection with stable deduplication. Native batch preview begins at S092.
 
 ## Goals
 
