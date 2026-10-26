@@ -12,6 +12,12 @@ export type DownloadListState =
       readonly message: string;
     };
 
+export interface RemovalConfirmation {
+  readonly jobId: string;
+  readonly action: "remove_record" | "delete_file";
+  readonly confirmedPath: string | null;
+}
+
 /** Renderer-facing state model. It never reads SQLite directly. */
 export class DownloadListController {
   #state: DownloadListState = { status: "loading", jobs: [] };
@@ -19,7 +25,10 @@ export class DownloadListController {
     null;
 
   public constructor(
-    private readonly engine: Pick<EngineApi, "listJobs" | "controlJob">,
+    private readonly engine: Pick<
+      EngineApi,
+      "listJobs" | "controlJob" | "removeJob"
+    >,
   ) {}
 
   public get state(): DownloadListState {
@@ -98,6 +107,50 @@ export class DownloadListController {
     }
   }
 
+  public prepareRemoval(
+    jobId: string,
+    deleteFile: boolean,
+  ): RemovalConfirmation | null {
+    if (this.#state.status !== "ready") return null;
+    const job = this.#state.jobs.find((candidate) => candidate.id === jobId);
+    if (job === undefined || !isRemovable(job.state)) return null;
+    return {
+      jobId,
+      action: deleteFile ? "delete_file" : "remove_record",
+      confirmedPath: deleteFile ? localFilePath(job) : null,
+    };
+  }
+
+  public async remove(confirmation: RemovalConfirmation): Promise<boolean> {
+    const expected = this.prepareRemoval(
+      confirmation.jobId,
+      confirmation.action === "delete_file",
+    );
+    if (
+      expected === null ||
+      expected.action !== confirmation.action ||
+      expected.confirmedPath !== confirmation.confirmedPath
+    ) {
+      this.#controlError = {
+        jobId: confirmation.jobId,
+        message: "Removal confirmation does not match the selected job",
+      };
+      return false;
+    }
+    try {
+      await this.engine.removeJob(
+        confirmation.jobId,
+        confirmation.action,
+        confirmation.confirmedPath,
+      );
+      this.#removeJob(confirmation.jobId);
+      return true;
+    } catch (error) {
+      this.#setControlError(confirmation.jobId, error);
+      return false;
+    }
+  }
+
   #replaceJob(jobId: string, replace: (job: DownloadJob) => DownloadJob): void {
     if (this.#state.status !== "ready") return;
     this.#state = {
@@ -105,6 +158,22 @@ export class DownloadListController {
       jobs: this.#state.jobs.map((job) =>
         job.id === jobId ? replace(job) : job,
       ),
+    };
+  }
+
+  #removeJob(jobId: string): void {
+    if (this.#state.status !== "ready") return;
+    const jobs = this.#state.jobs.filter((job) => job.id !== jobId);
+    this.#state =
+      jobs.length === 0
+        ? { status: "empty", jobs: [] }
+        : { status: "ready", jobs };
+  }
+
+  #setControlError(jobId: string, error: unknown): void {
+    this.#controlError = {
+      jobId,
+      message: error instanceof Error ? error.message : "Job action failed",
     };
   }
 }
@@ -120,5 +189,30 @@ function controlTarget(
   if (current === "queued" && (action === "pause" || action === "stop"))
     return "paused";
   if (current === "paused" && action === "resume") return "queued";
+  if (
+    action === "cancel" &&
+    !["completed", "cancelled", "missing_local_file"].includes(current)
+  )
+    return "cancelled";
   return null;
+}
+
+function isRemovable(state: DownloadState): boolean {
+  return [
+    "created",
+    "paused",
+    "completed",
+    "needs_authentication",
+    "needs_refresh",
+    "blocked",
+    "failed",
+    "cancelled",
+    "missing_local_file",
+  ].includes(state);
+}
+
+function localFilePath(job: DownloadJob): string {
+  const separator = job.destination.endsWith("\\") ? "" : "\\";
+  const suffix = job.state === "completed" ? "" : ".part";
+  return `${job.destination}${separator}${job.filename}${suffix}`;
 }

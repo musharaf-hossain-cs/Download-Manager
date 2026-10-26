@@ -14,11 +14,11 @@ use crate::{
     domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
     filename::{safe_destination, sanitize_windows_filename, select_filename},
     ipc::{
-        DuplicateAction, Envelope, JobAction, ProtocolError, UI_PROTOCOL_VERSION, UiMessage,
-        UiRequest, UiResponse, decode_ui_request,
+        DestructiveAction, DuplicateAction, Envelope, JobAction, ProtocolError,
+        UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse, decode_ui_request,
     },
     probe::HttpProbe,
-    state::DownloadState,
+    state::{DownloadState, is_legal_transition},
     storage::{Database, StorageError},
 };
 
@@ -85,6 +85,11 @@ impl DesktopService {
                 duplicate_action,
             })?,
             UiRequest::ControlJob { job_id, action } => self.control_job(job_id, action)?,
+            UiRequest::DestructiveJob {
+                job_id,
+                action,
+                confirmed_path,
+            } => self.destructive_job(job_id, action, confirmed_path.as_deref())?,
         };
         Ok(Envelope::new(
             UI_PROTOCOL_VERSION,
@@ -174,9 +179,91 @@ impl DesktopService {
             updated_at: at,
         })
     }
+
+    fn destructive_job(
+        &mut self,
+        job_id: JobId,
+        action: DestructiveAction,
+        confirmed_path: Option<&Path>,
+    ) -> Result<UiResponse, StorageError> {
+        let Some(job) = self.database.get_job(job_id)? else {
+            return Ok(rejected(
+                "job_not_found",
+                format!("job {job_id} does not exist"),
+            ));
+        };
+        if !is_removable(job.metadata.state) {
+            return Ok(rejected(
+                "job_active",
+                "cancel or stop the job before removing it".to_owned(),
+            ));
+        }
+        let delete_file = action == DestructiveAction::DeleteFile;
+        let expected_path = local_file_path(&job.metadata);
+        let confirmation_matches = if delete_file {
+            confirmed_path == Some(expected_path.as_path())
+        } else {
+            confirmed_path.is_none()
+        };
+        if !confirmation_matches {
+            return Ok(rejected(
+                "confirmation_mismatch",
+                format!(
+                    "confirmation must target exactly {}",
+                    expected_path.display()
+                ),
+            ));
+        }
+        if delete_file && let Err(error) = fs::remove_file(&expected_path) {
+            return Ok(rejected(
+                "file_delete_failed",
+                format!("could not delete {}: {error}", expected_path.display()),
+            ));
+        }
+        self.database.delete_job(job_id)?;
+        Ok(UiResponse::JobRemoved {
+            job_id,
+            file_deleted: delete_file,
+        })
+    }
+}
+
+fn rejected(code: &str, message: String) -> UiResponse {
+    UiResponse::Rejected {
+        code: code.to_owned(),
+        message,
+    }
+}
+
+const fn is_removable(state: DownloadState) -> bool {
+    matches!(
+        state,
+        DownloadState::Created
+            | DownloadState::Paused
+            | DownloadState::Completed
+            | DownloadState::NeedsAuthentication
+            | DownloadState::NeedsRefresh
+            | DownloadState::Blocked
+            | DownloadState::Failed
+            | DownloadState::Cancelled
+            | DownloadState::MissingLocalFile
+    )
+}
+
+fn local_file_path(job: &JobMetadata) -> PathBuf {
+    let filename = if job.state == DownloadState::Completed {
+        job.filename.clone()
+    } else {
+        format!("{}.part", job.filename)
+    };
+    job.destination.join(filename)
 }
 
 const fn control_target(current: DownloadState, action: JobAction) -> Option<DownloadState> {
+    if matches!(action, JobAction::Cancel) && is_legal_transition(current, DownloadState::Cancelled)
+    {
+        return Some(DownloadState::Cancelled);
+    }
     match (current, action) {
         (DownloadState::Created, JobAction::Start) => Some(DownloadState::Probing),
         (DownloadState::Queued, JobAction::Start) => Some(DownloadState::Connecting),
@@ -261,8 +348,8 @@ mod tests {
     use crate::{
         domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, RequestId, UnixMillis},
         ipc::{
-            DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION, UiMessage, UiRequest,
-            UiResponse,
+            DestructiveAction, DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION,
+            UiMessage, UiRequest, UiResponse,
         },
         state::DownloadState,
         storage::Database,
@@ -593,5 +680,125 @@ mod tests {
         ));
         assert_eq!(listed_jobs(&mut service)[0].state, DownloadState::Completed);
         assert_eq!(service.database.events(job.id).expect("events").len(), 0);
+    }
+
+    #[test]
+    fn cancel_and_record_only_removal_preserve_the_exact_local_file() {
+        let directory = tempfile::tempdir().expect("directory");
+        let mut database = Database::open_in_memory().expect("database");
+        let mut job = persisted_job();
+        job.state = DownloadState::Queued;
+        job.destination = directory.path().to_path_buf();
+        let partial = directory.path().join("persisted.zip.part");
+        fs::write(&partial, b"partial").expect("partial file");
+        database.create_job(&job, None).expect("persist job");
+        let mut service = DesktopService::new(database);
+
+        let cancelled = service
+            .handle(&request(UiRequest::ControlJob {
+                job_id: job.id,
+                action: JobAction::Cancel,
+            }))
+            .expect("cancel response");
+        assert!(matches!(
+            cancelled.payload,
+            UiMessage::Response {
+                response: UiResponse::JobState {
+                    state: DownloadState::Cancelled,
+                    ..
+                }
+            }
+        ));
+        assert!(partial.exists());
+        assert_eq!(listed_jobs(&mut service).len(), 1);
+
+        let removed = service
+            .handle(&request(UiRequest::DestructiveJob {
+                job_id: job.id,
+                action: DestructiveAction::RemoveRecord,
+                confirmed_path: None,
+            }))
+            .expect("remove response");
+        assert!(matches!(
+            removed.payload,
+            UiMessage::Response {
+                response: UiResponse::JobRemoved {
+                    file_deleted: false,
+                    ..
+                }
+            }
+        ));
+        assert!(partial.exists());
+        assert_eq!(listed_jobs(&mut service).len(), 0);
+    }
+
+    #[test]
+    fn delete_file_requires_confirmation_for_the_exact_job_target() {
+        let directory = tempfile::tempdir().expect("directory");
+        let mut database = Database::open_in_memory().expect("database");
+        let mut job = persisted_job();
+        job.state = DownloadState::Completed;
+        job.completed_at = Some(job.updated_at);
+        job.destination = directory.path().to_path_buf();
+        let target = directory.path().join("persisted.zip");
+        fs::write(&target, b"complete").expect("completed file");
+        database.create_job(&job, None).expect("persist job");
+        let mut service = DesktopService::new(database);
+
+        let rejected = service
+            .handle(&request(UiRequest::DestructiveJob {
+                job_id: job.id,
+                action: DestructiveAction::DeleteFile,
+                confirmed_path: Some(directory.path().join("other.zip")),
+            }))
+            .expect("rejection response");
+        assert!(matches!(
+            rejected.payload,
+            UiMessage::Response {
+                response: UiResponse::Rejected { code, .. }
+            } if code == "confirmation_mismatch"
+        ));
+        assert!(target.exists());
+        assert_eq!(listed_jobs(&mut service).len(), 1);
+
+        let removed = service
+            .handle(&request(UiRequest::DestructiveJob {
+                job_id: job.id,
+                action: DestructiveAction::DeleteFile,
+                confirmed_path: Some(target.clone()),
+            }))
+            .expect("delete response");
+        assert!(matches!(
+            removed.payload,
+            UiMessage::Response {
+                response: UiResponse::JobRemoved {
+                    file_deleted: true,
+                    ..
+                }
+            }
+        ));
+        assert!(!target.exists());
+        assert_eq!(listed_jobs(&mut service).len(), 0);
+
+        let mut partial_job = persisted_job();
+        partial_job.id = JobId::new();
+        partial_job.state = DownloadState::Cancelled;
+        partial_job.destination = directory.path().to_path_buf();
+        partial_job.filename = "partial.bin".to_owned();
+        let partial = directory.path().join("partial.bin.part");
+        fs::write(&partial, b"partial").expect("partial file");
+        service
+            .database
+            .create_job(&partial_job, None)
+            .expect("persist partial job");
+        service
+            .handle(&request(UiRequest::DestructiveJob {
+                job_id: partial_job.id,
+                action: DestructiveAction::DeleteFile,
+                confirmed_path: Some(partial.clone()),
+            }))
+            .expect("delete partial response");
+        assert!(!partial.exists());
+        assert_eq!(listed_jobs(&mut service).len(), 0);
     }
 }

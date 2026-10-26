@@ -23,7 +23,8 @@ export type DownloadKind = "file" | "media";
 export type DownloadPriority = "low" | "normal" | "high";
 export type DuplicateAction =
   "focus_existing" | "add_duplicate" | "replace_existing";
-export type JobAction = "start" | "pause" | "resume" | "stop";
+export type JobAction = "start" | "pause" | "resume" | "stop" | "cancel";
+export type DestructiveAction = "remove_record" | "delete_file";
 
 /** Complete, non-secret job metadata returned by the engine. */
 export interface DownloadJob {
@@ -79,6 +80,12 @@ export type UiRequest =
       readonly type: "control_job";
       readonly job_id: string;
       readonly action: JobAction;
+    }
+  | {
+      readonly type: "destructive_job";
+      readonly job_id: string;
+      readonly action: DestructiveAction;
+      readonly confirmed_path: string | null;
     };
 
 export interface UiRequestEnvelope {
@@ -97,6 +104,11 @@ export type UiResponse =
       readonly job_id: string;
       readonly state: DownloadState;
       readonly updated_at: number;
+    }
+  | {
+      readonly type: "job_removed";
+      readonly job_id: string;
+      readonly file_deleted: boolean;
     }
   | {
       readonly type: "rejected";
@@ -318,6 +330,15 @@ function parseResponse(value: unknown): UiResponse {
         typeof value.state === "string" &&
         DOWNLOAD_STATES.has(value.state) &&
         isNonNegativeNumber(value.updated_at)
+      ) {
+        return value as unknown as UiResponse;
+      }
+      break;
+    case "job_removed":
+      if (
+        hasExactKeys(value, ["type", "job_id", "file_deleted"]) &&
+        typeof value.job_id === "string" &&
+        typeof value.file_deleted === "boolean"
       ) {
         return value as unknown as UiResponse;
       }

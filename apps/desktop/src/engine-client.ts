@@ -4,6 +4,7 @@ import {
   ProtocolViolationError,
   type DownloadEvent,
   type DownloadJob,
+  type DestructiveAction,
   type DuplicateAction,
   type JobAction,
   type UiRequest,
@@ -27,6 +28,11 @@ export interface EngineApi {
   probeUrl(sourceUrl: string, destination: string): Promise<UrlProbe>;
   addJob(options: AddJobOptions): Promise<string>;
   controlJob(jobId: string, action: JobAction): Promise<JobControlResult>;
+  removeJob(
+    jobId: string,
+    action: DestructiveAction,
+    confirmedPath: string | null,
+  ): Promise<void>;
   subscribeToEvents(listener: (event: DownloadEvent) => void): () => void;
 }
 
@@ -155,6 +161,28 @@ export class EngineClient implements EngineApi {
       state: response.state,
       updatedAt: response.updated_at,
     };
+  }
+
+  public async removeJob(
+    jobId: string,
+    action: "remove_record" | "delete_file",
+    confirmedPath: string | null,
+  ): Promise<void> {
+    const response = await this.#request({
+      type: "destructive_job",
+      job_id: jobId,
+      action,
+      confirmed_path: confirmedPath,
+    });
+    if (
+      response.type !== "job_removed" ||
+      response.job_id !== jobId ||
+      response.file_deleted !== (action === "delete_file")
+    ) {
+      throw new ProtocolViolationError(
+        "remove request received a non-removal response",
+      );
+    }
   }
 
   public subscribeToEvents(

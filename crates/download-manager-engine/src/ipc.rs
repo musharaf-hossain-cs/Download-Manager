@@ -83,6 +83,11 @@ pub enum UiRequest {
         job_id: JobId,
         action: JobAction,
     },
+    DestructiveJob {
+        job_id: JobId,
+        action: DestructiveAction,
+        confirmed_path: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +105,14 @@ pub enum JobAction {
     Pause,
     Resume,
     Stop,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DestructiveAction {
+    RemoveRecord,
+    DeleteFile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +138,10 @@ pub enum UiResponse {
         job_id: JobId,
         state: DownloadState,
         updated_at: UnixMillis,
+    },
+    JobRemoved {
+        job_id: JobId,
+        file_deleted: bool,
     },
     Rejected {
         code: String,
@@ -282,6 +299,9 @@ fn reject_unknown_ui_fields(bytes: &[u8]) -> Result<(), ProtocolError> {
             ],
         ),
         Some("control_job") => validate_object_keys(payload, &["type", "job_id", "action"]),
+        Some("destructive_job") => {
+            validate_object_keys(payload, &["type", "job_id", "action", "confirmed_path"])
+        }
         _ => Ok(()),
     }
 }
