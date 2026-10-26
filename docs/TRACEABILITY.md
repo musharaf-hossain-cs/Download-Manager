@@ -19,7 +19,7 @@ This file defines the evidence format used as implementation proceeds. A require
 | `DATA-01` | P0 | S010 | Verified | `domain::tests::ids_serialize_as_stable_uuid_strings` | Jobs, segments, events, and requests use UUID-backed IDs. |
 | `DATA-02` | P0 | S013–S016 | Verified | `storage::tests::database_creates_reopens_and_reports_schema_version`; `failed_migration_rolls_back_and_preserves_backup` | Migrations are ordered, transactional, and pre-migration backup protected. |
 | `DATA-03` | P0 | S010, S053, S119 | Implemented | `credentials::tests::windows_store_round_trips_without_plaintext_database_or_log_value` | Windows secrets are user-vault encrypted and SQLite/log output contains references only; request-context expiry cleanup remains S119. |
-| `DATA-05` | P0 | S017, S069 | Verified | `storage::tests::retention_never_age_deletes_active_or_partial_jobs` | Durable policy is verified; history UI remains S069. |
+| `DATA-05` | P0 | S017, S069 | Verified | `storage::tests::retention_never_age_deletes_active_or_partial_jobs`; desktop `history.test.ts` retention cases | Durable cleanup and the completed-only history retention UI never age-delete active or partial jobs. |
 | `BI-012` | P0 | S019, S080 | Implemented | `ipc::tests::extension_rejects_oversize_invalid_urls_and_bad_nonces`; duplicate request-ID test | Version, strict fields, size, scheme, nonce, and replay checks exist; packaged-ID allowlist remains S080. |
 | `SEC-002` | P0 | S018–S019 and feature slices | Implemented | UI/extension malformed, unknown-field, oversize, invalid-scheme, and invalid-nonce tests | Boundary foundation is verified; later page/media/header schemas retain ownership of their inputs. |
 | `DL-004` | P0 | S021 | Verified | `probe::tests` | Redirects, final URL, length, range support, ETag, Last-Modified, MIME, disposition, and auth challenge are represented by the probe contract. |
@@ -64,7 +64,8 @@ This file defines the evidence format used as implementation proceeds. A require
 | `ORG-001` | P0 | S067 | Implemented | desktop `categories.test.ts` deterministic defaults | The six required defaults and stable identifiers exist; editing/add/remove remains later category-management work. |
 | `ORG-003` | P0 | S067 | Verified | desktop `categories.test.ts` destination policy cases | Each category has a deterministic destination and an explicit remembered-last-folder policy. |
 | `ORG-004` | P0 | S058, S060, S066 | Verified | desktop `download-list.test.ts`; `virtual-list.test.ts`; `segment-detail.test.ts` fake snapshots | Persisted list metadata, bounded large-list projection, and per-segment/aggregate progress, speed, and ETA detail are verified. |
-| `ORG-005` | P0 | S060, S069 | Implemented | desktop `virtual-list.test.ts` stable sort and 10,000-row budget | Sorting is verified without mutating persisted order; filtering, search, grouping, and saved views remain later slices. |
+| `ORG-005` | P0 | S060, S069 | Implemented | desktop `virtual-list.test.ts` stable sort and 10,000-row budget; `history.test.ts` search/filter cases | Sorting plus completed-history full-text/category/date filtering are verified; grouping and saved views remain later work. |
+| `ORG-006` | P0 | S069 | Verified | desktop `history.test.ts` clear and retention cases | Retention and manual clearing operate through a record-only port and leave downloaded files untouched. |
 
 ## Evidence rules
 
