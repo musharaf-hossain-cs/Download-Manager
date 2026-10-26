@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 5 — Chromium browser integration (next slice: S079)
+- Current milestone: Milestone 5 — Chromium browser integration (next slice: S083)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -90,7 +90,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S078 | DONE | Desktop `accessibility.test.ts` automated scan verifies named application/toolbar/grid roles, column and row semantics, non-color state cues, and Windows high-contrast tokens; deterministic keyboard walkthrough verifies roving focus, disabled-control skipping, activation, reverse navigation, and a visible focus ring; full TypeScript gates pass. |
 | S079 | DONE | Native-host `partial_reads_produce_one_framed_validated_response`, oversize/invalid-frame rejection, truncated-input, and broken-pipe tests pass; targeted format, clippy, and Rust tests pass. |
 | S080 | DONE | Native-host packaged-origin/current-user rejection tests verify exact allowlisting and envelope binding; `authorized_browser_origin_receives_health_response` proves the browser launch contract; full Rust/document gates pass. |
-| S081 | TODO | — |
+| S081 | DONE | `test-native-host-dev.ps1` verifies isolated HKCU-shaped Chrome/Edge register, framed health connect, exact-origin manifest, and unregister cleanup without elevation or real-registry changes. |
 | S082 | DONE | Extension manifest tests verify a clean-installable MV3 shell, `nativeMessaging`-only least permissions/no site access, and packaged-code-only CSP; full TypeScript quality gates pass. |
 | S083 | TODO | — |
 | S084 | TODO | — |
