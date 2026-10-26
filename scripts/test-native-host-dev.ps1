@@ -14,7 +14,11 @@ if (-not $HostPath) {
         (Join-Path $repositoryRoot 'target\debug\download-manager-native-host.exe'),
         (Join-Path $repositoryRoot 'target\x86_64-pc-windows-gnu\debug\download-manager-native-host.exe')
     )
-    $HostPath = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    $HostPath = $candidates |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        ForEach-Object { Get-Item -LiteralPath $_ } |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $HostPath) {
     throw 'Build the native host first or pass -HostPath.'
@@ -78,7 +82,7 @@ try {
     $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.ArgumentList.Add($origin)
+    $startInfo.Arguments = $origin
     $process = [Diagnostics.Process]::Start($startInfo)
     $process.StandardInput.BaseStream.Write($header, 0, $header.Length)
     $process.StandardInput.BaseStream.Write($body, 0, $body.Length)

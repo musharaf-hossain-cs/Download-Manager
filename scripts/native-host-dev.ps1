@@ -84,7 +84,11 @@ if ($Action -eq 'Register') {
                 (($manifest | ConvertTo-Json -Depth 3) + [Environment]::NewLine),
                 [Text.UTF8Encoding]::new($false)
             )
-            [IO.File]::Move($temporaryManifest, $ManifestPath, $true)
+            if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
+                [IO.File]::Replace($temporaryManifest, $ManifestPath, $null)
+            } else {
+                [IO.File]::Move($temporaryManifest, $ManifestPath)
+            }
         } finally {
             if (Test-Path -LiteralPath $temporaryManifest) {
                 Remove-Item -LiteralPath $temporaryManifest -Force
