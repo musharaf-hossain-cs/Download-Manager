@@ -17,4 +17,5 @@ export * from "./engine-client.js";
 export * from "./history.js";
 export * from "./progress.js";
 export * from "./segment-detail.js";
+export * from "./settings.js";
 export * from "./virtual-list.js";

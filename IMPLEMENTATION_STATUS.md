@@ -79,7 +79,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S067 | DONE | Desktop `categories.test.ts` verifies the deterministic six-category default set, per-category destinations, remembered-folder policy, and invalid root rejection; full gates pass. |
 | S068 | TODO | — |
 | S069 | DONE | Desktop `history.test.ts` verifies completed-only full-text/category/date filtering, validated retention, and record-only clear operations that never target downloaded files; full gates pass. |
-| S070 | TODO | — |
+| S070 | DONE | Desktop `settings.test.ts` verifies multi-field search, typed persisted updates, per-section/all reset, persistence rollback, and preference-only ports that preserve jobs/files; full gates pass. |
 | S071 | TODO | — |
 | S072 | TODO | — |
 | S073 | TODO | — |

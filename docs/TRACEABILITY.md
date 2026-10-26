@@ -66,6 +66,7 @@ This file defines the evidence format used as implementation proceeds. A require
 | `ORG-004` | P0 | S058, S060, S066 | Verified | desktop `download-list.test.ts`; `virtual-list.test.ts`; `segment-detail.test.ts` fake snapshots | Persisted list metadata, bounded large-list projection, and per-segment/aggregate progress, speed, and ETA detail are verified. |
 | `ORG-005` | P0 | S060, S069 | Implemented | desktop `virtual-list.test.ts` stable sort and 10,000-row budget; `history.test.ts` search/filter cases | Sorting plus completed-history full-text/category/date filtering are verified; grouping and saved views remain later work. |
 | `ORG-006` | P0 | S069 | Verified | desktop `history.test.ts` clear and retention cases | Retention and manual clearing operate through a record-only port and leave downloaded files untouched. |
+| `OPS-001` | P0 | S070 | Verified | desktop `settings.test.ts` search, section/all reset, rollback, and isolation cases | Settings are searchable and resettable per section or globally through a preference-only persistence port that cannot address jobs or files. |
 
 ## Evidence rules
 
