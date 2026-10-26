@@ -2,7 +2,7 @@
 
 A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 4 in progress through S073.** The desktop now includes persisted themes and column layouts, system-tray commands, configurable close behavior, and gated Windows completion/failure notifications. Clipboard URL detection begins at S074.
+> **Project status: Milestone 4 in progress through S074.** The desktop now includes persisted themes and column layouts, system-tray behavior, Windows notifications, and optional debounced clipboard URL detection. Drag-and-drop import begins at S075.
 
 ## Goals
 
