@@ -82,7 +82,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S070 | DONE | Desktop `settings.test.ts` verifies multi-field search, typed persisted updates, per-section/all reset, persistence rollback, and preference-only ports that preserve jobs/files; full gates pass. |
 | S071 | DONE | Desktop `appearance.test.ts` verifies light/dark/system resolution, persisted column visibility/order across reopen, new-column normalization, and persistence rollback; full TypeScript gates pass. |
 | S072 | DONE | Desktop `tray.test.ts` verifies all tray commands, persisted minimize/exit/ask close modes, rollback on persistence failure, and input validation; full TypeScript gates pass. |
-| S073 | TODO | — |
+| S073 | DONE | Desktop `notifications.test.ts` verifies deterministic Windows completion/failure toasts, enable/support gating, invalid detail rejection, and the real-adapter smoke payload; full TypeScript gates pass. |
 | S074 | TODO | — |
 | S075 | TODO | — |
 | S076 | TODO | — |
