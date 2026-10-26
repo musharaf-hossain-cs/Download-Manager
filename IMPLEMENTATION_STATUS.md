@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 7 — Media detection and download (next slice: S102)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S103)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -111,7 +111,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S099 | DONE | Extension `firefox-browser-behavior.test.ts` runs stable/ESR shared contracts for filtered installed interception, unknown-size normalization, site/type rules, force/bypass keys, and lifecycle-safe single/all/selected context menus with bounded normalized batches; full TypeScript/document gates pass. |
 | S100 | DONE | `pnpm test:browser-regression` runs one Chrome/Edge/Firefox stable+ESR adapter-contract matrix for acknowledged handoff, fallback preservation, capture rules/keys, and single/all/selected menus, then writes the stable `test-results/browser-regression.json` artifact; full TypeScript/document gates pass. |
 | S101 | DONE | Extension `media-candidates.test.ts` verifies normalized progressive/HLS/DASH classification, stable cross-source/player deduplication, SPA invalidation, immutable bounded snapshots, and malformed/false-positive rejection; full extension and documentation gates pass. |
-| S102 | TODO | — |
+| S102 | DONE | Extension `media-player-overlay.test.ts` verifies a closed Shadow-DOM download button, fixed player-corner placement, click/cleanup behavior, clipped-player viewport gutter, and unchanged host player layout/classes/controls; full extension and documentation gates pass. |
 | S103 | TODO | — |
 | S104 | TODO | — |
 | S105 | TODO | — |

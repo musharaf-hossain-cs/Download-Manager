@@ -25,3 +25,4 @@ export * from "./browser-profile.js";
 export * from "./firefox-link-interception.js";
 export * from "./firefox-browser-behavior.js";
 export * from "./media-candidates.js";
+export * from "./media-player-overlay.js";
