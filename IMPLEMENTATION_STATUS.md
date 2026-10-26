@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-26
-- Current milestone: Milestone 6 — Firefox and browser regression (next slice: S096)
+- Current milestone: Milestone 6 — Firefox and browser regression (next slice: S098)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -106,7 +106,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S094 | DONE | Extension `browser-profile.test.ts` verifies incognito default-off rejection, explicit session opt-in, end-of-session clearing, and zero private persistence calls; manifest tests verify split incognito execution; full TypeScript gates pass. |
 | S095 | DONE | Desktop `browser-integration-diagnostics.test.ts` verifies healthy and broken extension/version, Chrome/Edge registration, manifest, executable, allowlist, connection, protocol, and native-host fixtures plus deduplicated repair/recheck and failure preservation; extension `connection-health.test.ts` verifies exact mismatch evidence opens the repair flow; full verification gates pass. |
 | S096 | DONE | Firefox Manifest V3 shares the Chromium identity/permissions and compiled TypeScript source; `web-ext` 10.8.0 lint and reproducible ZIP build pass, with focused manifest tests and full TypeScript/document gates green. |
-| S097 | TODO | — |
+| S097 | DONE | Firefox `allowed_extensions` manifest/HKCU registration smoke passes; native-host unit/process tests bind the exact manifest path plus add-on ID to the running executable, packaged allowlist, request envelope, and current user while rejecting wrong IDs/manifests. |
 | S098 | TODO | — |
 | S099 | TODO | — |
 | S100 | TODO | — |

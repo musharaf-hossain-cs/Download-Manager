@@ -5,10 +5,10 @@ param(
     [string] $Action,
 
     [string] $HostPath,
-    [string[]] $ExtensionId = @('abcdefghijklmnopabcdefghijklmnop'),
+    [string[]] $ExtensionId,
     [string] $ManifestPath,
 
-    [ValidateSet('Chrome', 'Edge', 'All')]
+    [ValidateSet('Chrome', 'Edge', 'Firefox', 'All')]
     [string] $Browser = 'All',
 
     [string] $RegistrationRoot = 'Registry::HKEY_CURRENT_USER\Software'
@@ -25,21 +25,35 @@ if ($RegistrationRoot.StartsWith('Registry::', [StringComparison]::OrdinalIgnore
     throw "Registry registration is restricted to $registryRoot."
 }
 
+if (-not $PSBoundParameters.ContainsKey('ExtensionId')) {
+    $ExtensionId = if ($Browser -eq 'Firefox') {
+        @('download-manager@musharaf-hossain-cs.github.io')
+    } else {
+        @('abcdefghijklmnopabcdefghijklmnop')
+    }
+}
+
 if (-not $ManifestPath) {
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is required when ManifestPath is omitted.' }
-    $ManifestPath = Join-Path $env:LOCALAPPDATA "DownloadManager\NativeMessagingHosts\$hostName.json"
+    $manifestFileName = if ($Browser -eq 'Firefox') { "$hostName.firefox.json" } else { "$hostName.json" }
+    $ManifestPath = Join-Path $env:LOCALAPPDATA "DownloadManager\NativeMessagingHosts\$manifestFileName"
 }
 $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
 
 $ids = @($ExtensionId | Sort-Object -Unique)
-if ($ids.Count -eq 0 -or $ids.Count -ne @($ExtensionId).Count -or
-    @($ids | Where-Object { $_ -cnotmatch '^[a-p]{32}$' }).Count -ne 0) {
-    throw 'Each extension ID must be a unique 32-character lowercase value using a-p.'
+$invalidIds = @(if ($Browser -eq 'Firefox') {
+        $ids | Where-Object { $_ -cnotmatch '^[A-Za-z0-9._@{}-]{1,256}$' }
+    } else {
+        $ids | Where-Object { $_ -cnotmatch '^[a-p]{32}$' }
+    })
+if ($ids.Count -eq 0 -or $ids.Count -ne @($ExtensionId).Count -or $invalidIds.Count -ne 0) {
+    throw 'Each extension ID must be unique and valid for the selected browser.'
 }
 
 $browserKeys = switch ($Browser) {
     'Chrome' { 'Google\Chrome\NativeMessagingHosts' }
     'Edge' { 'Microsoft\Edge\NativeMessagingHosts' }
+    'Firefox' { 'Mozilla\NativeMessagingHosts' }
     'All' {
         'Google\Chrome\NativeMessagingHosts'
         'Microsoft\Edge\NativeMessagingHosts'
@@ -71,7 +85,11 @@ if ($Action -eq 'Register') {
         description = 'Download Manager native messaging host'
         path = $resolvedHost
         type = 'stdio'
-        allowed_origins = @($ids | ForEach-Object { "chrome-extension://$_/" })
+    }
+    if ($Browser -eq 'Firefox') {
+        $manifest.allowed_extensions = @($ids)
+    } else {
+        $manifest.allowed_origins = @($ids | ForEach-Object { "chrome-extension://$_/" })
     }
 
     if ($PSCmdlet.ShouldProcess($ManifestPath, 'Write native-host manifest')) {

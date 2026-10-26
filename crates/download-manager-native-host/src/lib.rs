@@ -1,12 +1,26 @@
-//! Bounded Chromium native-messaging transport for the browser bridge.
+//! Bounded browser native-messaging transport for the browser bridge.
 
-use std::io::{self, ErrorKind, Read, Write};
+use std::{
+    fs,
+    io::{self, ErrorKind, Read, Write},
+    path::{Path, PathBuf},
+};
 
 use download_manager_engine::ipc::{
     EXTENSION_PROTOCOL_VERSION, ExtensionEnvelope, ExtensionResponse, MAX_EXTENSION_MESSAGE_BYTES,
     RequestIdTracker, decode_extension_request,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+const NATIVE_HOST_NAME: &str = "io.github.musharaf_hossain_cs.download_manager";
+
+#[derive(Deserialize)]
+struct FirefoxNativeHostManifest {
+    name: String,
+    path: PathBuf,
+    r#type: String,
+    allowed_extensions: Vec<String>,
+}
 
 #[derive(Serialize)]
 struct ResponseEnvelope {
@@ -62,6 +76,70 @@ pub fn authorize_native_request(
         ));
     }
     Ok(())
+}
+
+/// Authorizes Firefox's Windows native-messaging launch contract.
+///
+/// Firefox supplies the full native-host manifest path as its first argument
+/// and the calling add-on ID as its second. The adapter binds both arguments
+/// to a registered-style manifest, the running executable, the packaged
+/// add-on allowlist, and the request envelope before any payload is handled.
+///
+/// # Errors
+/// Returns [`ErrorKind::PermissionDenied`] when the manifest is missing or
+/// invalid, its executable does not match, the add-on ID is not allowlisted,
+/// the envelope ID differs, or the peer is not the current user.
+pub fn authorize_firefox_native_request(
+    launch_manifest_path: &Path,
+    launch_extension_id: &str,
+    expected_executable: &Path,
+    request: &ExtensionEnvelope,
+    packaged_extension_ids: &[&str],
+    current_user_identity: &str,
+    browser_user_identity: &str,
+) -> io::Result<()> {
+    if current_user_identity.is_empty() || current_user_identity != browser_user_identity {
+        return Err(permission_denied(
+            "native messaging peer is not the current user",
+        ));
+    }
+    if launch_extension_id.is_empty()
+        || !packaged_extension_ids.contains(&launch_extension_id)
+        || request.extension_id != launch_extension_id
+    {
+        return Err(permission_denied(
+            "Firefox add-on ID is not allowlisted or does not match the request",
+        ));
+    }
+
+    let manifest_bytes = fs::read(launch_manifest_path)
+        .map_err(|_| permission_denied("Firefox native-host manifest is unavailable"))?;
+    let manifest: FirefoxNativeHostManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|_| permission_denied("Firefox native-host manifest is invalid"))?;
+    let manifest_executable = manifest
+        .path
+        .canonicalize()
+        .map_err(|_| permission_denied("Firefox native-host executable is unavailable"))?;
+    let expected_executable = expected_executable
+        .canonicalize()
+        .map_err(|_| permission_denied("running native-host executable is unavailable"))?;
+    if manifest.name != NATIVE_HOST_NAME
+        || manifest.r#type != "stdio"
+        || manifest_executable != expected_executable
+        || !manifest
+            .allowed_extensions
+            .iter()
+            .any(|id| id == launch_extension_id)
+    {
+        return Err(permission_denied(
+            "Firefox native-host manifest does not match this launch",
+        ));
+    }
+    Ok(())
+}
+
+fn permission_denied(message: &'static str) -> io::Error {
+    io::Error::new(ErrorKind::PermissionDenied, message)
 }
 
 /// Runs one native-messaging stream until the browser closes its input.
@@ -152,7 +230,9 @@ fn write_frame(writer: &mut impl Write, body: &[u8]) -> io::Result<()> {
 mod tests {
     use std::{
         cell::Cell,
+        fs,
         io::{self, Cursor, ErrorKind, Read, Write},
+        path::Path,
         rc::Rc,
     };
 
@@ -164,9 +244,12 @@ mod tests {
         },
     };
 
-    use super::{authorize_native_request, run_native_messaging_session};
+    use super::{
+        authorize_firefox_native_request, authorize_native_request, run_native_messaging_session,
+    };
 
     const PACKAGED_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+    const FIREFOX_ID: &str = "download-manager@musharaf-hossain-cs.github.io";
 
     struct ChunkedReader<R> {
         inner: R,
@@ -348,5 +431,90 @@ mod tests {
         )
         .expect_err("payload ID cannot override origin");
         assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn firefox_manifest_and_explicit_add_on_id_are_bound_to_the_request() {
+        let root = std::env::temp_dir().join(format!(
+            "download-manager-firefox-auth-{}",
+            RequestId::new()
+        ));
+        fs::create_dir_all(&root).expect("fixture directory");
+        let executable = root.join("download-manager-native-host.exe");
+        fs::write(&executable, b"fixture executable").expect("fixture executable");
+        let manifest = root.join("native-host.json");
+        write_firefox_manifest(&manifest, &executable, FIREFOX_ID);
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: FIREFOX_ID.to_owned(),
+            payload: ExtensionRequest::Health,
+        };
+
+        authorize_firefox_native_request(
+            &manifest,
+            FIREFOX_ID,
+            &executable,
+            &request,
+            &[FIREFOX_ID],
+            "current-user",
+            "current-user",
+        )
+        .expect("valid Firefox launch");
+
+        let missing_manifest = root.join("missing.json");
+        let wrong_executable = root.join("wrong.exe");
+        for (manifest_path, extension_id, expected_executable) in [
+            (
+                manifest.as_path(),
+                "wrong@example.test",
+                executable.as_path(),
+            ),
+            (missing_manifest.as_path(), FIREFOX_ID, executable.as_path()),
+            (manifest.as_path(), FIREFOX_ID, wrong_executable.as_path()),
+        ] {
+            let error = authorize_firefox_native_request(
+                manifest_path,
+                extension_id,
+                expected_executable,
+                &request,
+                &[FIREFOX_ID],
+                "current-user",
+                "current-user",
+            )
+            .expect_err("forged Firefox launch must be rejected");
+            assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+        }
+
+        write_firefox_manifest(&manifest, &executable, "other@example.test");
+        let error = authorize_firefox_native_request(
+            &manifest,
+            FIREFOX_ID,
+            &executable,
+            &request,
+            &[FIREFOX_ID],
+            "current-user",
+            "current-user",
+        )
+        .expect_err("manifest allowlist must be authoritative");
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+
+        fs::remove_dir_all(root).expect("remove fixture directory");
+    }
+
+    fn write_firefox_manifest(path: &Path, executable: &Path, extension_id: &str) {
+        let manifest = serde_json::json!({
+            "name": "io.github.musharaf_hossain_cs.download_manager",
+            "description": "Download Manager native messaging host",
+            "path": executable,
+            "type": "stdio",
+            "allowed_extensions": [extension_id],
+        });
+        fs::write(
+            path,
+            serde_json::to_vec(&manifest).expect("serialize manifest"),
+        )
+        .expect("write manifest");
     }
 }

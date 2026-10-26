@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 
 $extensionId = 'abcdefghijklmnopabcdefghijklmnop'
 $origin = "chrome-extension://$extensionId/"
+$firefoxExtensionId = 'download-manager@musharaf-hossain-cs.github.io'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $registrationScript = Join-Path $PSScriptRoot 'native-host-dev.ps1'
 
@@ -111,6 +112,26 @@ try {
     if (@(Get-ChildItem -LiteralPath $registrationRoot -Recurse -Filter '.default-value').Count -ne 0) {
         throw 'A registration marker survived unregister.'
     }
+
+    $firefoxManifestPath = Join-Path $temporaryRoot 'manifest\native-host.firefox.json'
+    & $registrationScript -Action Register -HostPath $HostPath -ExtensionId $firefoxExtensionId `
+        -ManifestPath $firefoxManifestPath -Browser Firefox -RegistrationRoot $registrationRoot
+    $firefoxManifest = Get-Content -LiteralPath $firefoxManifestPath -Raw | ConvertFrom-Json
+    if ($firefoxManifest.name -ne 'io.github.musharaf_hossain_cs.download_manager' -or
+        $firefoxManifest.path -ne $HostPath -or $firefoxManifest.type -ne 'stdio' -or
+        @($firefoxManifest.allowed_extensions).Count -ne 1 -or
+        $firefoxManifest.allowed_extensions[0] -ne $firefoxExtensionId -or
+        $firefoxManifest.PSObject.Properties.Name -contains 'allowed_origins') {
+        throw 'Generated Firefox native-host manifest is invalid.'
+    }
+    $firefoxMarker = Join-Path $registrationRoot `
+        'Mozilla\NativeMessagingHosts\io.github.musharaf_hossain_cs.download_manager\.default-value'
+    if ((Get-Content -LiteralPath $firefoxMarker -Raw) -ne $firefoxManifestPath) {
+        throw "Firefox registration marker is invalid: $firefoxMarker"
+    }
+    & $registrationScript -Action Unregister -ExtensionId $firefoxExtensionId `
+        -ManifestPath $firefoxManifestPath -Browser Firefox -RegistrationRoot $registrationRoot
+    if (Test-Path -LiteralPath $firefoxManifestPath) { throw 'Firefox manifest survived unregister.' }
     Write-Host 'Native-host register/connect/unregister smoke test passed.'
 } finally {
     if ($process -and -not $process.HasExited) { $process.Kill($true) }
