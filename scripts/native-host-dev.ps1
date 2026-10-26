@@ -8,8 +8,8 @@ param(
     [string[]] $ExtensionId,
     [string] $ManifestPath,
 
-    [ValidateSet('Chrome', 'Edge', 'Firefox', 'All')]
-    [string] $Browser = 'All',
+    [ValidateSet('Chrome', 'Edge', 'Chromium', 'Firefox')]
+    [string] $Browser = 'Chromium',
 
     [string] $RegistrationRoot = 'Registry::HKEY_CURRENT_USER\Software'
 )
@@ -54,7 +54,7 @@ $browserKeys = switch ($Browser) {
     'Chrome' { 'Google\Chrome\NativeMessagingHosts' }
     'Edge' { 'Microsoft\Edge\NativeMessagingHosts' }
     'Firefox' { 'Mozilla\NativeMessagingHosts' }
-    'All' {
+    'Chromium' {
         'Google\Chrome\NativeMessagingHosts'
         'Microsoft\Edge\NativeMessagingHosts'
     }

@@ -47,7 +47,7 @@ try {
     [IO.Directory]::CreateDirectory($registrationRoot) | Out-Null
     [IO.File]::WriteAllText($sentinelPath, 'preserve root')
     & $registrationScript -Action Register -HostPath $HostPath -ExtensionId $extensionId `
-        -ManifestPath $manifestPath -Browser All -RegistrationRoot $registrationRoot
+        -ManifestPath $manifestPath -Browser Chromium -RegistrationRoot $registrationRoot
 
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.name -ne 'io.github.musharaf_hossain_cs.download_manager' -or
@@ -104,7 +104,7 @@ try {
     }
 
     & $registrationScript -Action Unregister -ExtensionId $extensionId `
-        -ManifestPath $manifestPath -Browser All -RegistrationRoot $registrationRoot
+        -ManifestPath $manifestPath -Browser Chromium -RegistrationRoot $registrationRoot
     if (Test-Path -LiteralPath $manifestPath) { throw 'Manifest survived unregister.' }
     if (-not (Test-Path -LiteralPath $sentinelPath -PathType Leaf)) {
         throw 'Unregister removed data outside its exact targets.'

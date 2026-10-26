@@ -7,7 +7,7 @@
     "build": "tsc --project tsconfig.json --noEmit",
     "build:firefox": "pnpm prepare:firefox && web-ext build --source-dir dist/firefox --artifacts-dir web-ext-artifacts --overwrite-dest",
     "lint:firefox": "pnpm prepare:firefox && web-ext lint --source-dir dist/firefox",
-    "prepare:firefox": "tsc --project tsconfig.firefox.json && node -e \"require('node:fs').copyFileSync('manifest.firefox.json', 'dist/firefox/manifest.json')\"",
+    "prepare:firefox": "node -e \"require('node:fs').rmSync('dist/firefox', { recursive: true, force: true })\" && tsc --project tsconfig.firefox.json && node -e \"require('node:fs').copyFileSync('manifest.firefox.json', 'dist/firefox/manifest.json')\"",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
