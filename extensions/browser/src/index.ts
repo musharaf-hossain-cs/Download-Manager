@@ -27,3 +27,4 @@ export * from "./firefox-browser-behavior.js";
 export * from "./media-candidates.js";
 export * from "./media-player-overlay.js";
 export * from "./media-overlay-lifecycle.js";
+export * from "./media-overlay-interaction.js";

@@ -27,10 +27,12 @@ class FakeNode {
 
 class FakeElement extends FakeNode {
   readonly attributes = new Map<string, string>();
-  readonly listeners = new Map<string, Set<() => void>>();
+  readonly listeners = new Map<string, Set<(event?: unknown) => void>>();
   readonly style: Record<string, string> = {};
   readonly shadow = new FakeNode();
   type = "";
+  className = "";
+  hidden = false;
 
   constructor(readonly tagName: string) {
     super();
@@ -45,29 +47,54 @@ class FakeElement extends FakeNode {
     return this.shadow;
   }
 
-  addEventListener(type: string, listener: () => void): void {
+  addEventListener(type: string, listener: (event?: unknown) => void): void {
     const listeners = this.listeners.get(type) ?? new Set();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  removeEventListener(type: string, listener: () => void): void {
+  removeEventListener(type: string, listener: (event?: unknown) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
 
   click(): void {
     for (const listener of this.listeners.get("click") ?? []) listener();
   }
+
+  dispatch(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+
+  getBoundingClientRect(): DOMRect {
+    const left = Number.parseFloat(this.style.left ?? "0");
+    const top = Number.parseFloat(this.style.top ?? "0");
+    return { left, top } as DOMRect;
+  }
 }
 
 class FakeDocument {
   readonly documentElement = new FakeElement("html");
   readonly created: FakeElement[] = [];
+  readonly listeners = new Map<string, Set<(event?: unknown) => void>>();
 
   createElement(tagName: string): FakeElement {
     const element = new FakeElement(tagName);
     this.created.push(element);
     return element;
+  }
+
+  addEventListener(type: string, listener: (event?: unknown) => void): void {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event?: unknown) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatch(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
 
@@ -115,6 +142,8 @@ describe("basic media player overlay", () => {
     expect(host.shadow.children.map((node) => node.textContent)).toEqual([
       expect.stringContaining(":host { all: initial; }"),
       "Download media",
+      "−",
+      "↕",
     ]);
     const button = host.shadow.children[1] as FakeElement;
     expect(button.type).toBe("button");
@@ -176,6 +205,56 @@ describe("basic media player overlay", () => {
     ).toMatchObject({
       top: "8px",
       left: "8px",
+    });
+  });
+
+  it("minimizes and drags from isolated controls while reporting state", () => {
+    const { document, player } = domFixture();
+    const states: unknown[] = [];
+    mountBasicMediaPlayerOverlay({
+      document: document as unknown as Document,
+      player: player as unknown as Element,
+      onDownload: vi.fn(),
+      initialInteractionState: {
+        minimized: true,
+        position: { x: 24, y: 36 },
+      },
+      onInteractionChange: (state) => states.push(state),
+    });
+    const host = document.documentElement.children[0] as FakeElement;
+    const download = host.shadow.children[1] as FakeElement;
+    const minimize = host.shadow.children[2] as FakeElement;
+    const drag = host.shadow.children[3] as FakeElement;
+    expect(download.hidden).toBe(true);
+    expect(host.style).toMatchObject({
+      left: "24px",
+      top: "36px",
+      transform: "none",
+    });
+
+    minimize.click();
+    expect(download.hidden).toBe(false);
+    expect(states).toEqual([{ minimized: false, position: { x: 24, y: 36 } }]);
+
+    const preventDefault = vi.fn();
+    drag.dispatch("pointerdown", {
+      button: 0,
+      pointerId: 7,
+      clientX: 10,
+      clientY: 20,
+      preventDefault,
+    });
+    document.dispatch("pointermove", {
+      pointerId: 7,
+      clientX: 50,
+      clientY: 70,
+    });
+    document.dispatch("pointerup", { pointerId: 7 });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(host.style).toMatchObject({ left: "64px", top: "86px" });
+    expect(states.at(-1)).toEqual({
+      minimized: false,
+      position: { x: 64, y: 86 },
     });
   });
 });
