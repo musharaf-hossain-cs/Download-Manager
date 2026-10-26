@@ -119,7 +119,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S107 | TODO | — |
 | S108 | TODO | — |
 | S109 | TODO | — |
-| S110 | TODO | — |
+| S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |
 | S111 | TODO | — |
 | S112 | TODO | — |
 | S113 | TODO | — |

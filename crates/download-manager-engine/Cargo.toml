@@ -13,6 +13,7 @@ fs2 = "0.4.3"
 httpdate = "1.0.3"
 md5 = { package = "md-5", version = "0.10.6" }
 percent-encoding = "2.3.2"
+quick-xml = "0.38.4"
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls"] }
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
