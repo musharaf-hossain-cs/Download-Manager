@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S111)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S112)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -120,7 +120,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S108 | DONE | Engine `hls::tests` verify init/media objects are fetched and written in playlist order, retryable failures recover within budget, missing fragments stop safely, byte ranges require exact partial responses, and final bytes/SHA-256 match; full Rust/document gates pass. |
 | S109 | DONE | Engine `hls::tests::restart_skips_durable_units_and_truncates_uncheckpointed_tail` reopens SQLite after a simulated crash, validates the durable identity/content-hashed prefix, truncates file-ahead bytes, requests only missing HLS units, and produces the exact final bytes/hash; full verification gates pass. |
 | S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |
-| S111 | TODO | — |
+| S111 | DONE | Engine `dash::tests` verify bounded `SegmentTemplate` substitution/inheritance, duration and timeline expansion (including `r=-1` boundaries), ordered `SegmentList` URLs/ranges, and malformed/unbounded-input rejection; all fast verification gates pass. |
 | S112 | TODO | — |
 | S113 | TODO | — |
 | S114 | TODO | — |
