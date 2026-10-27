@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S118)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S119)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -127,7 +127,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S115 | DONE | Engine `audio_output::tests` verify deterministic direct-format preservation and copy-only segmented container plans, exact direct/HLS/DASH bytes and SHA-256 hashes, ordered HLS init/media output, and DASH audio-only requests with no video fetch; all fast verification gates pass. |
 | S116 | DONE | Engine `subtitle::tests` verify selected WebVTT/TTML downloads with exact source hashes, millisecond-exact SRT timing, multilingual Unicode, plain-text markup handling, bounded complexity, malformed/ambiguous timing rejection, and cleanup with no partial output; all fast verification gates pass. |
 | S117 | DONE | Engine `media_selection::tests` verify bounded HLS/DASH menus with quality/language/codec/container and known-or-estimated size metadata, exact audio/video/subtitle track identity mapping, HLS group compatibility, audio-only selection, and DASH period isolation; all fast verification gates pass. |
-| S118 | TODO | — |
+| S118 | DONE | Engine `media_refresh::tests` verify explicit original browser/profile/session scope and signature-only HLS/DASH identity refresh; refreshed HLS plus DASH plan/checkpoint-preflight tests prove only missing units resume while locator, semantic-query, topology, and stale-checkpoint mismatches preserve partial files and checkpoints; all fast verification gates pass. |
 | S119 | TODO | — |
 | S120 | TODO | — |
 | S121 | TODO | — |

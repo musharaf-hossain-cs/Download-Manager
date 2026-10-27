@@ -20,6 +20,7 @@ pub mod ipc;
 pub mod limits;
 pub mod media;
 pub mod media_mux;
+pub mod media_refresh;
 pub mod media_selection;
 pub mod media_worker;
 pub mod network;

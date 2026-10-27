@@ -19,6 +19,7 @@ use thiserror::Error;
 use crate::{
     domain::{HttpUrl, JobId, Segment, SegmentId, UnixMillis},
     media::{HlsByteRange, HlsInitSegment, HlsMediaPlaylist},
+    media_refresh::{RefreshError, ValidatedRefresh, validate_hls_refresh},
     retry::{RetryDecision, RetryPolicy},
     storage::{Database, StorageError},
 };
@@ -41,6 +42,14 @@ pub struct HlsResumeOutcome {
     pub skipped_units: usize,
     pub downloaded_units: usize,
     pub sha256: String,
+}
+
+/// Original and refreshed playlist pair authorized by the source browser session.
+#[derive(Debug)]
+pub struct HlsRefreshRequest<'a> {
+    pub authorization: ValidatedRefresh,
+    pub original: &'a HlsMediaPlaylist,
+    pub refreshed: &'a HlsMediaPlaylist,
 }
 
 #[derive(Debug, Error)]
@@ -81,6 +90,8 @@ pub enum HlsResumeError {
     CheckpointMismatch(&'static str),
     #[error("durable HLS state failed: {0}")]
     Storage(#[from] StorageError),
+    #[error("signed-URL refresh was refused: {0}")]
+    Refresh(#[from] RefreshError),
     #[error("filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -159,7 +170,58 @@ impl HlsVodDownloader {
         temporary_path: &Path,
         at: UnixMillis,
     ) -> Result<HlsResumeOutcome, HlsResumeError> {
-        if !playlist.has_end_list {
+        self.resume_with_checkpoint_playlist(
+            database,
+            job_id,
+            playlist,
+            playlist,
+            temporary_path,
+            at,
+        )
+    }
+
+    /// Resumes a user-refreshed VOD playlist after proving it is the same logical media object.
+    ///
+    /// Durable bytes are reconciled against the original playlist that created their checkpoints;
+    /// only missing units are fetched from the refreshed signed URLs. Validation completes before
+    /// the partial file or database is opened.
+    ///
+    /// # Errors
+    /// Returns a safe refusal when the refreshed playlist changes resource identity or topology,
+    /// or the normal persisted-resume checks fail.
+    pub fn resume_refreshed(
+        &self,
+        database: &mut Database,
+        job_id: JobId,
+        refresh: HlsRefreshRequest<'_>,
+        temporary_path: &Path,
+        at: UnixMillis,
+    ) -> Result<HlsResumeOutcome, HlsResumeError> {
+        let job = database
+            .get_job(job_id)?
+            .ok_or_else(|| StorageError::Corrupt(format!("job {job_id} does not exist")))?;
+        refresh.authorization.permits(&job.metadata)?;
+        validate_hls_refresh(refresh.original, refresh.refreshed)?;
+        self.resume_with_checkpoint_playlist(
+            database,
+            job_id,
+            refresh.original,
+            refresh.refreshed,
+            temporary_path,
+            at,
+        )
+    }
+
+    fn resume_with_checkpoint_playlist(
+        &self,
+        database: &mut Database,
+        job_id: JobId,
+        checkpoint_playlist: &HlsMediaPlaylist,
+        download_playlist: &HlsMediaPlaylist,
+        temporary_path: &Path,
+        at: UnixMillis,
+    ) -> Result<HlsResumeOutcome, HlsResumeError> {
+        if !download_playlist.has_end_list {
             return Err(HlsDownloadError::NotVod.into());
         }
         if let Some(parent) = temporary_path.parent()
@@ -167,7 +229,8 @@ impl HlsVodDownloader {
         {
             fs::create_dir_all(parent)?;
         }
-        let units = ordered_units(playlist);
+        let checkpoint_units = ordered_units(checkpoint_playlist);
+        let units = ordered_units(download_playlist);
         let mut segments = database.segments(job_id)?;
         let mut output = OpenOptions::new()
             .create(true)
@@ -176,7 +239,7 @@ impl HlsVodDownloader {
             .write(true)
             .open(temporary_path)?;
         let (mut downloaded_bytes, mut hasher) =
-            reconcile_durable_prefix(&mut output, &segments, &units)?;
+            reconcile_durable_prefix(&mut output, &segments, &checkpoint_units)?;
         output.set_len(downloaded_bytes)?;
         output.seek(SeekFrom::Start(downloaded_bytes))?;
         let skipped_units = segments.len();
@@ -485,10 +548,11 @@ mod tests {
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
-    use super::{HlsDownloadError, HlsVodDownloader};
+    use super::{HlsDownloadError, HlsRefreshRequest, HlsVodDownloader};
     use crate::{
         domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
         media::parse_hls_media_playlist,
+        media_refresh::ValidatedRefresh,
         retry::RetryPolicy,
         state::DownloadState,
         storage::Database,
@@ -725,6 +789,106 @@ mod tests {
                 .map(|request| request.target.as_str())
                 .collect::<Vec<_>>(),
             ["/init.mp4", "/one.m4s", "/two.m4s"]
+        );
+    }
+
+    #[test]
+    fn refreshed_signed_urls_resume_same_hls_object_and_refuse_mismatch() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok("INIT"),
+            Fixture::ok("first"),
+            Fixture::ok("second"),
+        ]);
+        let initial = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4?token=old\"\n\
+             #EXTINF:4,\none.m4s?token=old\n#EXT-X-ENDLIST",
+        );
+        let original = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4?token=old\"\n\
+             #EXTINF:4,\none.m4s?token=old\n#EXTINF:4,\ntwo.m4s?token=old\n#EXT-X-ENDLIST",
+        );
+        let refreshed = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4?token=new\"\n\
+             #EXTINF:4,\none.m4s?token=new\n#EXTINF:4,\ntwo.m4s?token=new\n#EXT-X-ENDLIST",
+        );
+        let mut mismatched = refreshed.clone();
+        mismatched.segments[2 - 1].uri =
+            HttpUrl::parse(server.url("/different.m4s?token=new")).expect("mismatch URL");
+        let directory = tempdir().expect("tempdir");
+        let database_path = directory.path().join("state.sqlite");
+        let output = directory.path().join("video.part");
+        let job_id = JobId::new();
+        let source_url = HttpUrl::parse(server.url("/playlist.m3u8")).expect("source URL");
+        let mut database = Database::open(&database_path).expect("database");
+        database
+            .create_job(&test_job(job_id, source_url, &output), None)
+            .expect("job");
+        let downloader = HlsVodDownloader::new().expect("downloader");
+        downloader
+            .resume_persisted(&mut database, job_id, &initial, &output, timestamp(2))
+            .expect("initial prefix");
+        let mut stored_job = database
+            .get_job(job_id)
+            .expect("job read")
+            .expect("job exists")
+            .metadata;
+        stored_job.state = DownloadState::NeedsRefresh;
+        database
+            .update_job(&stored_job)
+            .expect("mark needs refresh");
+
+        let before_bytes = fs::read(&output).expect("prefix");
+        let before_segments = database.segments(job_id).expect("segments");
+        let error = downloader
+            .resume_refreshed(
+                &mut database,
+                job_id,
+                HlsRefreshRequest {
+                    authorization: ValidatedRefresh::for_test(job_id),
+                    original: &original,
+                    refreshed: &mismatched,
+                },
+                &output,
+                timestamp(3),
+            )
+            .expect_err("changed object must be refused");
+        assert!(matches!(error, super::HlsResumeError::Refresh(_)));
+        assert_eq!(fs::read(&output).expect("unchanged prefix"), before_bytes);
+        assert_eq!(
+            database.segments(job_id).expect("unchanged segments"),
+            before_segments
+        );
+
+        let resumed = downloader
+            .resume_refreshed(
+                &mut database,
+                job_id,
+                HlsRefreshRequest {
+                    authorization: ValidatedRefresh::for_test(job_id),
+                    original: &original,
+                    refreshed: &refreshed,
+                },
+                &output,
+                timestamp(4),
+            )
+            .expect("refreshed resume");
+        assert_eq!(resumed.skipped_units, 2);
+        assert_eq!(resumed.downloaded_units, 1);
+        assert_eq!(fs::read(&output).expect("output"), b"INITfirstsecond");
+        assert_eq!(
+            server
+                .requests()
+                .iter()
+                .map(|request| request.target.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "/init.mp4?token=old",
+                "/one.m4s?token=old",
+                "/two.m4s?token=new"
+            ]
         );
     }
 }
