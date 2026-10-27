@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S116)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S117)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -125,7 +125,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S113 | DONE | Engine `media_worker::tests` verify shell-free literal metacharacter arguments, canonical local-file-only inputs, crash/timeout cleanup with source preservation, and bounded input/output/stderr resources; all fast verification gates pass. |
 | S114 | DONE | Engine `media_mux::tests` verify deterministic MP4/MKV/WebM codec compatibility, bounded local-only ffprobe duration/start/end-sync/codec assertions, and invalid-output cleanup with both source tracks preserved; all fast verification gates pass. |
 | S115 | DONE | Engine `audio_output::tests` verify deterministic direct-format preservation and copy-only segmented container plans, exact direct/HLS/DASH bytes and SHA-256 hashes, ordered HLS init/media output, and DASH audio-only requests with no video fetch; all fast verification gates pass. |
-| S116 | TODO | — |
+| S116 | DONE | Engine `subtitle::tests` verify selected WebVTT/TTML downloads with exact source hashes, millisecond-exact SRT timing, multilingual Unicode, plain-text markup handling, bounded complexity, malformed/ambiguous timing rejection, and cleanup with no partial output; all fast verification gates pass. |
 | S117 | TODO | — |
 | S118 | TODO | — |
 | S119 | TODO | — |

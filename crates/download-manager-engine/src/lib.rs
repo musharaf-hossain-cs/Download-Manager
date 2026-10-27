@@ -32,6 +32,7 @@ pub mod scheduler;
 pub mod segmented;
 pub mod state;
 pub mod storage;
+pub mod subtitle;
 pub mod transfer;
 
 #[cfg(test)]
