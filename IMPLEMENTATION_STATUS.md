@@ -122,7 +122,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |
 | S111 | DONE | Engine `dash::tests` verify bounded `SegmentTemplate` substitution/inheritance, duration and timeline expansion (including `r=-1` boundaries), ordered `SegmentList` URLs/ranges, and malformed/unbounded-input rejection; all fast verification gates pass. |
 | S112 | TODO | — |
-| S113 | TODO | — |
+| S113 | DONE | Engine `media_worker::tests` verify shell-free literal metacharacter arguments, canonical local-file-only inputs, crash/timeout cleanup with source preservation, and bounded input/output/stderr resources; all fast verification gates pass. |
 | S114 | TODO | — |
 | S115 | TODO | — |
 | S116 | TODO | — |
