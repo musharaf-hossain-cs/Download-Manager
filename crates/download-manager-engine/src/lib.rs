@@ -6,6 +6,7 @@ pub mod benchmark;
 pub mod checkpoint;
 pub mod credentials;
 pub mod dash;
+pub mod dash_download;
 pub mod desktop;
 pub mod disk;
 pub mod domain;

@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S112)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S114)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -121,7 +121,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S109 | DONE | Engine `hls::tests::restart_skips_durable_units_and_truncates_uncheckpointed_tail` reopens SQLite after a simulated crash, validates the durable identity/content-hashed prefix, truncates file-ahead bytes, requests only missing HLS units, and produces the exact final bytes/hash; full verification gates pass. |
 | S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |
 | S111 | DONE | Engine `dash::tests` verify bounded `SegmentTemplate` substitution/inheritance, duration and timeline expansion (including `r=-1` boundaries), ordered `SegmentList` URLs/ranges, and malformed/unbounded-input rejection; all fast verification gates pass. |
-| S112 | TODO | — |
+| S112 | DONE | Engine `dash_download::tests` verify concurrent audio/video transfer with isolated durable jobs, exact track bytes/SHA-256 hashes, checkpointed counters, crash-tail truncation, and restart requests for missing resources only; all fast verification gates pass. |
 | S113 | DONE | Engine `media_worker::tests` verify shell-free literal metacharacter arguments, canonical local-file-only inputs, crash/timeout cleanup with source preservation, and bounded input/output/stderr resources; all fast verification gates pass. |
 | S114 | TODO | — |
 | S115 | TODO | — |
