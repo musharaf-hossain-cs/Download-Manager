@@ -132,7 +132,7 @@ impl FfmpegWorker {
         Self::with_prefix(executable.as_ref(), Vec::new(), limits)
     }
 
-    fn with_prefix(
+    pub(crate) fn with_prefix(
         executable: &Path,
         prefix_arguments: Vec<OsString>,
         limits: MediaWorkerLimits,

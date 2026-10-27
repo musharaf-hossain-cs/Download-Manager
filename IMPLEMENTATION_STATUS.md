@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S114)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S115)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -123,7 +123,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S111 | DONE | Engine `dash::tests` verify bounded `SegmentTemplate` substitution/inheritance, duration and timeline expansion (including `r=-1` boundaries), ordered `SegmentList` URLs/ranges, and malformed/unbounded-input rejection; all fast verification gates pass. |
 | S112 | DONE | Engine `dash_download::tests` verify concurrent audio/video transfer with isolated durable jobs, exact track bytes/SHA-256 hashes, checkpointed counters, crash-tail truncation, and restart requests for missing resources only; all fast verification gates pass. |
 | S113 | DONE | Engine `media_worker::tests` verify shell-free literal metacharacter arguments, canonical local-file-only inputs, crash/timeout cleanup with source preservation, and bounded input/output/stderr resources; all fast verification gates pass. |
-| S114 | TODO | — |
+| S114 | DONE | Engine `media_mux::tests` verify deterministic MP4/MKV/WebM codec compatibility, bounded local-only ffprobe duration/start/end-sync/codec assertions, and invalid-output cleanup with both source tracks preserved; all fast verification gates pass. |
 | S115 | TODO | — |
 | S116 | TODO | — |
 | S117 | TODO | — |

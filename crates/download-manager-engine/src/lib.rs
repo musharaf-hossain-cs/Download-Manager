@@ -18,6 +18,7 @@ pub mod integrity;
 pub mod ipc;
 pub mod limits;
 pub mod media;
+pub mod media_mux;
 pub mod media_worker;
 pub mod network;
 pub mod network_metrics;
