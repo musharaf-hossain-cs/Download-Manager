@@ -12,6 +12,7 @@ pub mod domain;
 pub mod fairness;
 pub mod filename;
 pub mod finalize;
+pub mod hls;
 pub mod integrity;
 pub mod ipc;
 pub mod limits;
