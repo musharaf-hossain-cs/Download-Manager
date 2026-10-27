@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S109)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S111)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -118,7 +118,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S106 | DONE | Engine `media::tests` verify HLS master variants plus external/muxed audio and subtitle URI resolution, bitrate/resolution/frame-rate/codec/language metadata, and rejection of media playlists, malformed tags, missing stream URIs, and non-HTTP targets; focused and established Rust/document gates pass. |
 | S107 | DONE | Engine `media::tests` parse ordered TS and fMP4 media playlists with resolved init maps, explicit/implicit byte ranges, media sequences, discontinuities, end markers, and malformed-input rejection; focused and established Rust/document gates pass. |
 | S108 | DONE | Engine `hls::tests` verify init/media objects are fetched and written in playlist order, retryable failures recover within budget, missing fragments stop safely, byte ranges require exact partial responses, and final bytes/SHA-256 match; full Rust/document gates pass. |
-| S109 | TODO | — |
+| S109 | DONE | Engine `hls::tests::restart_skips_durable_units_and_truncates_uncheckpointed_tail` reopens SQLite after a simulated crash, validates the durable identity/content-hashed prefix, truncates file-ahead bytes, requests only missing HLS units, and produces the exact final bytes/hash; full verification gates pass. |
 | S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |
 | S111 | TODO | — |
 | S112 | TODO | — |

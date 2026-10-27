@@ -1,8 +1,8 @@
 //! Ordered HLS video-on-demand fragment transfer.
 
 use std::{
-    fs::{self, File},
-    io::{Read, Write},
+    fs::{self, File, OpenOptions},
+    io::{Read, Seek, SeekFrom, Write},
     path::Path,
     thread,
     time::SystemTime,
@@ -17,9 +17,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    domain::HttpUrl,
+    domain::{HttpUrl, JobId, Segment, SegmentId, UnixMillis},
     media::{HlsByteRange, HlsInitSegment, HlsMediaPlaylist},
     retry::{RetryDecision, RetryPolicy},
+    storage::{Database, StorageError},
 };
 
 const BUFFER_SIZE: usize = 64 * 1024;
@@ -30,6 +31,15 @@ pub struct HlsDownloadOutcome {
     pub downloaded_bytes: u64,
     pub media_segments: usize,
     pub init_segments: usize,
+    pub sha256: String,
+}
+
+/// Result of reconciling durable HLS fragments and downloading only missing units.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HlsResumeOutcome {
+    pub downloaded_bytes: u64,
+    pub skipped_units: usize,
+    pub downloaded_units: usize,
     pub sha256: String,
 }
 
@@ -59,6 +69,18 @@ pub enum HlsDownloadError {
         expected: u64,
         actual: u64,
     },
+    #[error("filesystem operation failed: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum HlsResumeError {
+    #[error(transparent)]
+    Download(#[from] HlsDownloadError),
+    #[error("durable HLS checkpoint does not match the playlist or partial file: {0}")]
+    CheckpointMismatch(&'static str),
+    #[error("durable HLS state failed: {0}")]
+    Storage(#[from] StorageError),
     #[error("filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -121,6 +143,76 @@ impl HlsVodDownloader {
         result
     }
 
+    /// Reconciles the partial file with durable fragment checkpoints and fetches missing units.
+    ///
+    /// Every completed unit is synced before its contiguous output range and identity/content hash
+    /// are committed. File bytes beyond the last database checkpoint are truncated on restart.
+    ///
+    /// # Errors
+    /// Returns an error for non-VOD input, corrupt/mismatched checkpoints, transfer failures, or
+    /// storage/filesystem failures.
+    pub fn resume_persisted(
+        &self,
+        database: &mut Database,
+        job_id: JobId,
+        playlist: &HlsMediaPlaylist,
+        temporary_path: &Path,
+        at: UnixMillis,
+    ) -> Result<HlsResumeOutcome, HlsResumeError> {
+        if !playlist.has_end_list {
+            return Err(HlsDownloadError::NotVod.into());
+        }
+        if let Some(parent) = temporary_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        let units = ordered_units(playlist);
+        let mut segments = database.segments(job_id)?;
+        let mut output = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(temporary_path)?;
+        let (mut downloaded_bytes, mut hasher) =
+            reconcile_durable_prefix(&mut output, &segments, &units)?;
+        output.set_len(downloaded_bytes)?;
+        output.seek(SeekFrom::Start(downloaded_bytes))?;
+        let skipped_units = segments.len();
+
+        for (unit_index, unit) in units.iter().enumerate().skip(skipped_units) {
+            let response = self.fetch(unit_index, unit)?;
+            let copied = copy_response(unit_index, response, unit, &mut output, &mut hasher)?;
+            if copied.bytes == 0 {
+                return Err(HlsResumeError::CheckpointMismatch("empty fragment"));
+            }
+            output.sync_all()?;
+            let start = downloaded_bytes;
+            downloaded_bytes = downloaded_bytes
+                .checked_add(copied.bytes)
+                .ok_or(HlsResumeError::CheckpointMismatch("output length overflow"))?;
+            segments.push(Segment {
+                id: SegmentId::new(),
+                job_id,
+                start,
+                end: downloaded_bytes - 1,
+                durable_offset: downloaded_bytes,
+                worker_state: "completed".to_owned(),
+                checksum: Some(checkpoint_checksum(unit, &copied.sha256)),
+                checkpoint_at: at,
+            });
+            database.checkpoint_segments(job_id, &segments, at)?;
+        }
+        output.sync_all()?;
+        Ok(HlsResumeOutcome {
+            downloaded_bytes,
+            skipped_units,
+            downloaded_units: units.len() - skipped_units,
+            sha256: format!("{:x}", hasher.finalize()),
+        })
+    }
+
     fn download_to_file(
         &self,
         playlist: &HlsMediaPlaylist,
@@ -134,13 +226,7 @@ impl HlsVodDownloader {
         for (index, unit) in units.iter().enumerate() {
             let response = self.fetch(index, unit)?;
             downloaded_bytes = downloaded_bytes
-                .checked_add(copy_response(
-                    index,
-                    response,
-                    unit,
-                    &mut output,
-                    &mut hasher,
-                )?)
+                .checked_add(copy_response(index, response, unit, &mut output, &mut hasher)?.bytes)
                 .ok_or_else(|| std::io::Error::other("HLS output length overflow"))?;
         }
         output.sync_all()?;
@@ -239,6 +325,74 @@ fn ordered_units(playlist: &HlsMediaPlaylist) -> Vec<HlsUnit> {
     units
 }
 
+fn reconcile_durable_prefix(
+    output: &mut File,
+    segments: &[Segment],
+    units: &[HlsUnit],
+) -> Result<(u64, Sha256), HlsResumeError> {
+    if segments.len() > units.len() {
+        return Err(HlsResumeError::CheckpointMismatch("too many durable units"));
+    }
+    let durable_bytes = segments.last().map_or(0, |segment| segment.durable_offset);
+    if output.metadata()?.len() < durable_bytes {
+        return Err(HlsResumeError::CheckpointMismatch(
+            "database is ahead of the partial file",
+        ));
+    }
+    output.seek(SeekFrom::Start(0))?;
+    let mut hasher = Sha256::new();
+    let mut expected_start = 0_u64;
+    let mut buffer = vec![0_u8; BUFFER_SIZE];
+    for (segment, unit) in segments.iter().zip(units) {
+        let after_end = segment
+            .end
+            .checked_add(1)
+            .ok_or(HlsResumeError::CheckpointMismatch("segment range overflow"))?;
+        if segment.start != expected_start
+            || segment.durable_offset != after_end
+            || segment.worker_state != "completed"
+        {
+            return Err(HlsResumeError::CheckpointMismatch(
+                "durable units are not a completed contiguous prefix",
+            ));
+        }
+        let mut remaining = after_end - segment.start;
+        let mut unit_hasher = Sha256::new();
+        while remaining > 0 {
+            let requested = usize::try_from(remaining.min(BUFFER_SIZE as u64))
+                .expect("bounded read length fits usize");
+            let count = output.read(&mut buffer[..requested])?;
+            if count == 0 {
+                return Err(HlsResumeError::CheckpointMismatch(
+                    "partial file ended before its durable prefix",
+                ));
+            }
+            hasher.update(&buffer[..count]);
+            unit_hasher.update(&buffer[..count]);
+            remaining -= u64::try_from(count).expect("buffer length fits u64");
+        }
+        let content_hash = format!("{:x}", unit_hasher.finalize());
+        if segment.checksum.as_deref() != Some(checkpoint_checksum(unit, &content_hash).as_str()) {
+            return Err(HlsResumeError::CheckpointMismatch(
+                "unit identity or content hash changed",
+            ));
+        }
+        expected_start = after_end;
+    }
+    Ok((durable_bytes, hasher))
+}
+
+fn checkpoint_checksum(unit: &HlsUnit, content_hash: &str) -> String {
+    let mut identity = Sha256::new();
+    identity.update(unit.uri.as_str().as_bytes());
+    identity.update([u8::from(unit.is_init)]);
+    if let Some(range) = unit.byte_range {
+        identity.update(range.offset.to_le_bytes());
+        identity.update(range.length.to_le_bytes());
+    }
+    format!("hls-v1:{:x}:{content_hash}", identity.finalize())
+}
+
 fn validate_response(
     unit_index: usize,
     unit: &HlsUnit,
@@ -271,14 +425,20 @@ fn validate_response(
     Ok(())
 }
 
+struct CopiedUnit {
+    bytes: u64,
+    sha256: String,
+}
+
 fn copy_response(
     unit_index: usize,
     mut response: Response,
     unit: &HlsUnit,
     output: &mut File,
     hasher: &mut Sha256,
-) -> Result<u64, HlsDownloadError> {
+) -> Result<CopiedUnit, HlsDownloadError> {
     let mut copied = 0_u64;
+    let mut unit_hasher = Sha256::new();
     let mut buffer = vec![0_u8; BUFFER_SIZE];
     loop {
         let count =
@@ -293,6 +453,7 @@ fn copy_response(
         }
         output.write_all(&buffer[..count])?;
         hasher.update(&buffer[..count]);
+        unit_hasher.update(&buffer[..count]);
         copied = copied
             .checked_add(u64::try_from(count).expect("buffer length fits u64"))
             .ok_or_else(|| std::io::Error::other("HLS fragment length overflow"))?;
@@ -306,21 +467,31 @@ fn copy_response(
             actual: copied,
         });
     }
-    Ok(copied)
+    Ok(CopiedUnit {
+        bytes: copied,
+        sha256: format!("{:x}", unit_hasher.finalize()),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::Duration};
+    use std::{
+        fs::{self, OpenOptions},
+        io::Write,
+        path::Path,
+        time::Duration,
+    };
 
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     use super::{HlsDownloadError, HlsVodDownloader};
     use crate::{
-        domain::HttpUrl,
+        domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
         media::parse_hls_media_playlist,
         retry::RetryPolicy,
+        state::DownloadState,
+        storage::Database,
         test_support::{Fixture, FixtureServer},
     };
 
@@ -338,6 +509,35 @@ mod tests {
             base_delay: Duration::ZERO,
             maximum_delay: Duration::ZERO,
             jitter_per_mille: 0,
+        }
+    }
+
+    fn timestamp(value: i64) -> UnixMillis {
+        UnixMillis::new(value).expect("timestamp")
+    }
+
+    fn test_job(id: JobId, source_url: HttpUrl, destination: &Path) -> JobMetadata {
+        JobMetadata {
+            id,
+            display_url: source_url.as_str().to_owned(),
+            source_url,
+            final_url: None,
+            filename: "video.mp4".to_owned(),
+            destination: destination.to_owned(),
+            state: DownloadState::Downloading,
+            kind: DownloadKind::Media,
+            total_bytes: None,
+            downloaded_bytes: 0,
+            category: None,
+            queue: None,
+            priority: Priority::Normal,
+            source_browser: None,
+            source_profile: None,
+            retry_count: 0,
+            error: None,
+            created_at: timestamp(1),
+            updated_at: timestamp(1),
+            completed_at: None,
         }
     }
 
@@ -449,5 +649,82 @@ mod tests {
         let requests = server.requests();
         assert_eq!(requests[0].header("range"), Some("bytes=2-4"));
         assert_eq!(fs::read(output).expect("output"), b"cde");
+    }
+
+    #[test]
+    fn restart_skips_durable_units_and_truncates_uncheckpointed_tail() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok("INIT"),
+            Fixture::ok("first"),
+            Fixture::ok("second"),
+        ]);
+        let first_playlist = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4\"\n\
+             #EXTINF:4,\none.m4s\n#EXT-X-ENDLIST",
+        );
+        let full_playlist = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MAP:URI=\"init.mp4\"\n\
+             #EXTINF:4,\none.m4s\n#EXTINF:4,\ntwo.m4s\n#EXT-X-ENDLIST",
+        );
+        let directory = tempdir().expect("tempdir");
+        let database_path = directory.path().join("state.sqlite");
+        let output = directory.path().join("video.part");
+        let job_id = JobId::new();
+        let source_url = HttpUrl::parse(server.url("/playlist.m3u8")).expect("source URL");
+        let mut database = Database::open(&database_path).expect("database");
+        database
+            .create_job(&test_job(job_id, source_url, &output), None)
+            .expect("job");
+        let downloader = HlsVodDownloader::new().expect("downloader");
+
+        let initial = downloader
+            .resume_persisted(
+                &mut database,
+                job_id,
+                &first_playlist,
+                &output,
+                timestamp(2),
+            )
+            .expect("initial durable units");
+        assert_eq!(initial.downloaded_units, 2);
+        OpenOptions::new()
+            .append(true)
+            .open(&output)
+            .expect("partial output")
+            .write_all(b"uncheckpointed-crash-tail")
+            .expect("crash tail");
+        drop(database);
+
+        let mut reopened = Database::open(&database_path).expect("reopen database");
+        let resumed = downloader
+            .resume_persisted(&mut reopened, job_id, &full_playlist, &output, timestamp(3))
+            .expect("restart resume");
+
+        let expected = b"INITfirstsecond";
+        assert_eq!(resumed.skipped_units, 2);
+        assert_eq!(resumed.downloaded_units, 1);
+        assert_eq!(resumed.downloaded_bytes, expected.len() as u64);
+        assert_eq!(resumed.sha256, format!("{:x}", Sha256::digest(expected)));
+        assert_eq!(fs::read(&output).expect("output"), expected);
+        assert_eq!(reopened.segments(job_id).expect("segments").len(), 3);
+        assert_eq!(
+            reopened
+                .get_job(job_id)
+                .expect("job read")
+                .expect("job exists")
+                .metadata
+                .downloaded_bytes,
+            expected.len() as u64
+        );
+        assert_eq!(
+            server
+                .requests()
+                .iter()
+                .map(|request| request.target.as_str())
+                .collect::<Vec<_>>(),
+            ["/init.mp4", "/one.m4s", "/two.m4s"]
+        );
     }
 }
