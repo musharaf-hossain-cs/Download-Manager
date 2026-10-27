@@ -1,6 +1,7 @@
 #![doc = "Core transfer-engine boundary for Download Manager."]
 
 pub mod adaptive;
+pub mod audio_output;
 pub mod auth;
 pub mod benchmark;
 pub mod checkpoint;

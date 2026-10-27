@@ -60,6 +60,8 @@ pub struct DashTrackPairOutcome {
 pub enum DashTrackDownloadError {
     #[error("audio and video tracks require distinct job IDs and output paths")]
     InvalidPair,
+    #[error("audio-only download requires an audio track request")]
+    InvalidAudioTrack,
     #[error("DASH track has no initialization or media resources")]
     EmptyTrack,
     #[error("DASH track resource {unit} has an invalid byte range")]
@@ -168,6 +170,31 @@ impl DashTrackDownloader {
         let video = video_result.map_err(|_| DashTrackDownloadError::WorkerPanicked)??;
         let audio = audio_result.map_err(|_| DashTrackDownloadError::WorkerPanicked)??;
         Ok(DashTrackPairOutcome { video, audio })
+    }
+
+    /// Downloads/resumes one selected audio representation without requesting a video track.
+    ///
+    /// The caller creates the durable audio job in `database_path`. Each completed object is
+    /// synced and checkpointed using the same identity/content validation as paired downloads.
+    ///
+    /// # Errors
+    /// Returns an error for a non-audio request, an aliased database/output path, corrupt
+    /// checkpoints, exhausted HTTP retry, invalid ranges, or storage/filesystem failures.
+    pub fn resume_audio(
+        &self,
+        database_path: &Path,
+        mut audio: DashTrackRequest,
+        at: UnixMillis,
+    ) -> Result<DashTrackOutcome, DashTrackDownloadError> {
+        if audio.kind != DashTrackKind::Audio {
+            return Err(DashTrackDownloadError::InvalidAudioTrack);
+        }
+        audio.temporary_path = normalized_output_path(&audio.temporary_path)?;
+        let database_identity = database_path.canonicalize()?;
+        if audio.temporary_path == database_identity {
+            return Err(DashTrackDownloadError::InvalidAudioTrack);
+        }
+        self.resume_track(&database_identity, &audio, at)
     }
 
     fn resume_track(
