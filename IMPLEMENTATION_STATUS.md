@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-27
-- Current milestone: Milestone 7 — Media detection and download (next slice: S107)
+- Current milestone: Milestone 7 — Media detection and download (next slice: S108)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -116,7 +116,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S104 | DONE | Extension `media-player-overlay.test.ts` verifies isolated minimize/drag controls and state reporting; `media-overlay-interaction.test.ts` verifies persisted/clamped per-site state, global/exact-site enable exceptions, malformed-state normalization, and persistence rollback; full TypeScript and documentation gates pass. |
 | S105 | DONE | Extension `progressive-media-handoff.test.ts` verifies acknowledged MP4/WebM/audio handoff with the required normalized referrer, exact fixture bytes/SHA-256, duplicate suppression, bounded timeout/retry, and invalid/offline/native-rejection handling; full TypeScript and documentation gates pass. |
 | S106 | DONE | Engine `media::tests` verify HLS master variants plus external/muxed audio and subtitle URI resolution, bitrate/resolution/frame-rate/codec/language metadata, and rejection of media playlists, malformed tags, missing stream URIs, and non-HTTP targets; focused and established Rust/document gates pass. |
-| S107 | TODO | — |
+| S107 | DONE | Engine `media::tests` parse ordered TS and fMP4 media playlists with resolved init maps, explicit/implicit byte ranges, media sequences, discontinuities, end markers, and malformed-input rejection; focused and established Rust/document gates pass. |
 | S108 | TODO | — |
 | S109 | TODO | — |
 | S110 | DONE | `dash::tests` parse static multi-period MPDs with inherited/nested `BaseURL`, effective adaptation/representation metadata, namespaced DRM markers, and bounded malformed/dynamic-input rejection. |

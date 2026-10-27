@@ -37,6 +37,65 @@ pub struct HlsRendition {
     pub is_default: bool,
 }
 
+/// A parsed HLS media playlist in playback order.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HlsMediaPlaylist {
+    pub media_sequence: u64,
+    pub target_duration: u64,
+    pub segments: Vec<HlsMediaSegment>,
+    pub has_end_list: bool,
+}
+
+/// One media fragment and the state that applies when it begins.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HlsMediaSegment {
+    pub sequence: u64,
+    pub uri: HttpUrl,
+    pub duration_seconds: f64,
+    pub byte_range: Option<HlsByteRange>,
+    pub init_segment: Option<HlsInitSegment>,
+    pub discontinuity: bool,
+}
+
+/// An inclusive byte window expressed as an offset and non-zero length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HlsByteRange {
+    pub offset: u64,
+    pub length: u64,
+}
+
+/// The fMP4 initialization object active for a media fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HlsInitSegment {
+    pub uri: HttpUrl,
+    pub byte_range: Option<HlsByteRange>,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum HlsMediaError {
+    #[error("playlist must begin with #EXTM3U")]
+    MissingHeader,
+    #[error("playlist does not contain media segments")]
+    NoSegments,
+    #[error("master-playlist tags are not valid in a media playlist")]
+    MasterPlaylist,
+    #[error("malformed {0} tag")]
+    MalformedTag(&'static str),
+    #[error("{tag} is missing required attribute {attribute}")]
+    MissingAttribute {
+        tag: &'static str,
+        attribute: &'static str,
+    },
+    #[error("invalid {attribute} attribute")]
+    InvalidAttribute { attribute: &'static str },
+    #[error("invalid or unsupported media URI")]
+    InvalidUri,
+    #[error("byte-range offset is missing without a preceding range for the same URI")]
+    MissingByteRangeOffset,
+    #[error("playlist sequence or byte range overflows")]
+    Overflow,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum HlsMasterError {
     #[error("playlist must begin with #EXTM3U")]
@@ -120,6 +179,294 @@ pub fn parse_hls_master_playlist(
     Ok(playlist)
 }
 
+/// Parses an HLS media playlist, resolving ordered TS/fMP4 fragments and active init sections.
+///
+/// Unknown extension tags are retained only through their effect on ordering: this slice models
+/// byte ranges and discontinuities, while encryption and live-window policy belong to later
+/// contracts.
+///
+/// # Errors
+/// Returns an error for a master playlist, missing/malformed segment metadata, invalid byte-range
+/// chaining, arithmetic overflow, or non-HTTP(S) URIs.
+pub fn parse_hls_media_playlist(
+    manifest: &str,
+    manifest_url: &HttpUrl,
+) -> Result<HlsMediaPlaylist, HlsMediaError> {
+    let mut lines = manifest
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let header = lines.next().map(|line| line.trim_start_matches('\u{feff}'));
+    if header != Some("#EXTM3U") {
+        return Err(HlsMediaError::MissingHeader);
+    }
+
+    let base = Url::parse(manifest_url.as_str()).map_err(|_| HlsMediaError::InvalidUri)?;
+    let mut state = MediaParseState::default();
+    for line in lines {
+        state.parse_line(&base, line)?;
+    }
+    state.finish()
+}
+
+#[derive(Default)]
+struct MediaParseState {
+    playlist: HlsMediaPlaylist,
+    pending_duration: Option<f64>,
+    pending_range: Option<RawByteRange>,
+    pending_discontinuity: bool,
+    active_init: Option<HlsInitSegment>,
+    previous_range: Option<(HttpUrl, HlsByteRange)>,
+    previous_map_range: Option<(HttpUrl, HlsByteRange)>,
+}
+
+impl MediaParseState {
+    fn parse_line(&mut self, base: &Url, line: &str) -> Result<(), HlsMediaError> {
+        if line.starts_with("#EXT-X-STREAM-INF:") || line.starts_with("#EXT-X-I-FRAME-STREAM-INF:")
+        {
+            return Err(HlsMediaError::MasterPlaylist);
+        }
+        if let Some(value) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
+            if !self.playlist.segments.is_empty() || self.playlist.media_sequence != 0 {
+                return Err(HlsMediaError::MalformedTag("EXT-X-MEDIA-SEQUENCE"));
+            }
+            self.playlist.media_sequence = parse_u64(value, "MEDIA-SEQUENCE", true)?;
+            return Ok(());
+        }
+        if let Some(value) = line.strip_prefix("#EXT-X-TARGETDURATION:") {
+            if self.playlist.target_duration != 0 {
+                return Err(HlsMediaError::MalformedTag("EXT-X-TARGETDURATION"));
+            }
+            self.playlist.target_duration = parse_u64(value, "TARGETDURATION", false)?;
+            return Ok(());
+        }
+        if let Some(value) = line.strip_prefix("#EXTINF:") {
+            if self.pending_duration.is_some() {
+                return Err(HlsMediaError::MalformedTag("EXTINF"));
+            }
+            let duration = value
+                .split_once(',')
+                .map_or(value, |(duration, _)| duration);
+            self.pending_duration = Some(parse_media_duration(duration)?);
+            return Ok(());
+        }
+        if let Some(value) = line.strip_prefix("#EXT-X-BYTERANGE:") {
+            if self.pending_range.is_some() {
+                return Err(HlsMediaError::MalformedTag("EXT-X-BYTERANGE"));
+            }
+            self.pending_range = Some(parse_raw_byte_range(value)?);
+            return Ok(());
+        }
+        if let Some(value) = line.strip_prefix("#EXT-X-MAP:") {
+            self.parse_map(base, value)?;
+            return Ok(());
+        }
+        if line == "#EXT-X-DISCONTINUITY" {
+            if self.pending_discontinuity {
+                return Err(HlsMediaError::MalformedTag("EXT-X-DISCONTINUITY"));
+            }
+            self.pending_discontinuity = true;
+            return Ok(());
+        }
+        if line == "#EXT-X-ENDLIST" {
+            self.playlist.has_end_list = true;
+            return Ok(());
+        }
+        if line.starts_with('#') {
+            return Ok(());
+        }
+        self.push_segment(base, line)
+    }
+
+    fn parse_map(&mut self, base: &Url, value: &str) -> Result<(), HlsMediaError> {
+        let attributes = parse_media_attributes(value, "EXT-X-MAP")?;
+        let uri = attributes
+            .get("URI")
+            .ok_or(HlsMediaError::MissingAttribute {
+                tag: "EXT-X-MAP",
+                attribute: "URI",
+            })
+            .and_then(|value| resolve_media_uri(base, value))?;
+        let byte_range = attributes
+            .get("BYTERANGE")
+            .map(|value| parse_raw_byte_range(value))
+            .transpose()?
+            .map(|range| resolve_byte_range(range, &uri, self.previous_map_range.as_ref()))
+            .transpose()?;
+        if let Some(range) = byte_range {
+            self.previous_map_range = Some((uri.clone(), range));
+        }
+        self.active_init = Some(HlsInitSegment { uri, byte_range });
+        Ok(())
+    }
+
+    fn push_segment(&mut self, base: &Url, line: &str) -> Result<(), HlsMediaError> {
+        if self.playlist.has_end_list {
+            return Err(HlsMediaError::MalformedTag("EXT-X-ENDLIST"));
+        }
+        let duration_seconds = self
+            .pending_duration
+            .take()
+            .ok_or(HlsMediaError::MalformedTag("EXTINF"))?;
+        let uri = resolve_media_uri(base, line)?;
+        let byte_range = self
+            .pending_range
+            .take()
+            .map(|range| resolve_byte_range(range, &uri, self.previous_range.as_ref()))
+            .transpose()?;
+        if let Some(range) = byte_range {
+            self.previous_range = Some((uri.clone(), range));
+        } else {
+            self.previous_range = None;
+        }
+        let index =
+            u64::try_from(self.playlist.segments.len()).map_err(|_| HlsMediaError::Overflow)?;
+        let sequence = self
+            .playlist
+            .media_sequence
+            .checked_add(index)
+            .ok_or(HlsMediaError::Overflow)?;
+        self.playlist.segments.push(HlsMediaSegment {
+            sequence,
+            uri,
+            duration_seconds,
+            byte_range,
+            init_segment: self.active_init.clone(),
+            discontinuity: std::mem::take(&mut self.pending_discontinuity),
+        });
+        Ok(())
+    }
+
+    fn finish(self) -> Result<HlsMediaPlaylist, HlsMediaError> {
+        if self.pending_duration.is_some()
+            || self.pending_range.is_some()
+            || self.pending_discontinuity
+        {
+            return Err(HlsMediaError::MalformedTag("segment"));
+        }
+        if self.playlist.segments.is_empty() {
+            return Err(HlsMediaError::NoSegments);
+        }
+        if self.playlist.target_duration == 0 {
+            return Err(HlsMediaError::MissingAttribute {
+                tag: "playlist",
+                attribute: "EXT-X-TARGETDURATION",
+            });
+        }
+        Ok(self.playlist)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RawByteRange {
+    length: u64,
+    offset: Option<u64>,
+}
+
+fn parse_raw_byte_range(value: &str) -> Result<RawByteRange, HlsMediaError> {
+    let (length, offset) = value
+        .trim()
+        .split_once('@')
+        .map_or((value.trim(), None), |parts| {
+            (parts.0.trim(), Some(parts.1.trim()))
+        });
+    let length = parse_u64(length, "BYTERANGE", false)?;
+    let offset = offset
+        .map(|value| parse_u64(value, "BYTERANGE", true))
+        .transpose()?;
+    Ok(RawByteRange { length, offset })
+}
+
+fn resolve_byte_range(
+    raw: RawByteRange,
+    uri: &HttpUrl,
+    previous: Option<&(HttpUrl, HlsByteRange)>,
+) -> Result<HlsByteRange, HlsMediaError> {
+    let offset = if let Some(offset) = raw.offset {
+        offset
+    } else {
+        let (previous_uri, previous_range) =
+            previous.ok_or(HlsMediaError::MissingByteRangeOffset)?;
+        if previous_uri != uri {
+            return Err(HlsMediaError::MissingByteRangeOffset);
+        }
+        previous_range
+            .offset
+            .checked_add(previous_range.length)
+            .ok_or(HlsMediaError::Overflow)?
+    };
+    offset
+        .checked_add(raw.length)
+        .ok_or(HlsMediaError::Overflow)?;
+    Ok(HlsByteRange {
+        offset,
+        length: raw.length,
+    })
+}
+
+fn parse_media_duration(value: &str) -> Result<f64, HlsMediaError> {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or(HlsMediaError::InvalidAttribute {
+            attribute: "EXTINF duration",
+        })
+}
+
+fn parse_u64(value: &str, attribute: &'static str, allow_zero: bool) -> Result<u64, HlsMediaError> {
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|value| allow_zero || *value > 0)
+        .ok_or(HlsMediaError::InvalidAttribute { attribute })
+}
+
+fn parse_media_attributes(
+    input: &str,
+    tag: &'static str,
+) -> Result<BTreeMap<String, String>, HlsMediaError> {
+    parse_attribute_entries(input).ok_or(HlsMediaError::MalformedTag(tag))
+}
+
+fn parse_attribute_entries(input: &str) -> Option<BTreeMap<String, String>> {
+    let mut values = BTreeMap::new();
+    let mut quoted = false;
+    let mut start = 0;
+    for (index, character) in input
+        .char_indices()
+        .chain(std::iter::once((input.len(), ',')))
+    {
+        if character == '"' {
+            quoted = !quoted;
+        }
+        if character == ',' && !quoted {
+            let entry = input.get(start..index)?.trim();
+            let (name, raw) = entry.split_once('=')?;
+            let value = match (raw.strip_prefix('"'), raw.strip_suffix('"')) {
+                (Some(without_start), Some(_)) => without_start.strip_suffix('"')?,
+                (None, None) => raw,
+                _ => return None,
+            };
+            if name.is_empty()
+                || value.is_empty()
+                || values.insert(name.to_owned(), value.to_owned()).is_some()
+            {
+                return None;
+            }
+            start = index + 1;
+        }
+    }
+    (!quoted && !values.is_empty()).then_some(values)
+}
+
+fn resolve_media_uri(base: &Url, uri: &str) -> Result<HttpUrl, HlsMediaError> {
+    let resolved = base.join(uri).map_err(|_| HlsMediaError::InvalidUri)?;
+    HttpUrl::parse(resolved.to_string()).map_err(|_| HlsMediaError::InvalidUri)
+}
+
 fn parse_variant(
     base: &Url,
     attributes: &BTreeMap<String, String>,
@@ -185,38 +532,7 @@ fn parse_attributes(
     input: &str,
     tag: &'static str,
 ) -> Result<BTreeMap<String, String>, HlsMasterError> {
-    let mut values = BTreeMap::new();
-    let mut quoted = false;
-    let mut start = 0;
-    for (index, character) in input
-        .char_indices()
-        .chain(std::iter::once((input.len(), ',')))
-    {
-        if character == '"' {
-            quoted = !quoted;
-        }
-        if character == ',' && !quoted {
-            let entry = input[start..index].trim();
-            let (name, raw) = entry
-                .split_once('=')
-                .ok_or(HlsMasterError::MalformedTag(tag))?;
-            let value = raw
-                .strip_prefix('"')
-                .and_then(|value| value.strip_suffix('"'))
-                .unwrap_or(raw);
-            if name.is_empty()
-                || value.is_empty()
-                || values.insert(name.to_owned(), value.to_owned()).is_some()
-            {
-                return Err(HlsMasterError::MalformedTag(tag));
-            }
-            start = index + 1;
-        }
-    }
-    if quoted || values.is_empty() {
-        return Err(HlsMasterError::MalformedTag(tag));
-    }
-    Ok(values)
+    parse_attribute_entries(input).ok_or(HlsMasterError::MalformedTag(tag))
 }
 
 fn required<'a>(
@@ -258,7 +574,10 @@ fn parse_positive_f64(value: &str, attribute: &'static str) -> Result<f64, HlsMa
 
 #[cfg(test)]
 mod tests {
-    use super::{HlsMasterError, parse_hls_master_playlist};
+    use super::{
+        HlsByteRange, HlsMasterError, HlsMediaError, parse_hls_master_playlist,
+        parse_hls_media_playlist,
+    };
     use crate::domain::HttpUrl;
 
     fn url(value: &str) -> HttpUrl {
@@ -367,5 +686,126 @@ mod tests {
             ),
             Err(HlsMasterError::MalformedTag("EXT-X-STREAM-INF"))
         );
+    }
+
+    #[test]
+    fn ts_segments_preserve_sequence_order_and_discontinuities() {
+        let parsed = parse_hls_media_playlist(
+            "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:41\n\
+             #EXTINF:9.5,opening\nparts/00041.ts\n#EXT-X-DISCONTINUITY\n\
+             #EXTINF:10,\nhttps://cdn.example.test/00042.ts?token=x\n#EXT-X-ENDLIST",
+            &url("https://media.example.test/vod/playlist.m3u8"),
+        )
+        .expect("TS media playlist");
+
+        assert_eq!(parsed.media_sequence, 41);
+        assert_eq!(parsed.target_duration, 10);
+        assert!(parsed.has_end_list);
+        assert_eq!(parsed.segments.len(), 2);
+        assert_eq!(parsed.segments[0].sequence, 41);
+        assert_eq!(parsed.segments[0].duration_seconds, 9.5);
+        assert_eq!(
+            parsed.segments[0].uri.as_str(),
+            "https://media.example.test/vod/parts/00041.ts"
+        );
+        assert!(!parsed.segments[0].discontinuity);
+        assert_eq!(parsed.segments[1].sequence, 42);
+        assert!(parsed.segments[1].discontinuity);
+    }
+
+    #[test]
+    fn fmp4_init_and_implicit_byte_ranges_follow_declared_state() {
+        let parsed = parse_hls_media_playlist(
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n\
+             #EXT-X-MAP:URI=\"media.mp4\",BYTERANGE=\"20@0\"\n\
+             #EXTINF:4,\n#EXT-X-BYTERANGE:100@20\nmedia.mp4\n\
+             #EXTINF:4,\n#EXT-X-BYTERANGE:80\nmedia.mp4\n\
+             #EXT-X-MAP:URI=\"second.mp4\",BYTERANGE=\"16@4\"\n\
+             #EXTINF:2,\nsecond.mp4\n#EXT-X-ENDLIST",
+            &url("https://example.test/video/index.m3u8"),
+        )
+        .expect("fMP4 media playlist");
+
+        assert_eq!(
+            parsed.segments[0].byte_range,
+            Some(HlsByteRange {
+                offset: 20,
+                length: 100
+            })
+        );
+        assert_eq!(
+            parsed.segments[1].byte_range,
+            Some(HlsByteRange {
+                offset: 120,
+                length: 80
+            })
+        );
+        assert_eq!(
+            parsed.segments[0].init_segment,
+            parsed.segments[1].init_segment
+        );
+        let first_init = parsed.segments[0]
+            .init_segment
+            .as_ref()
+            .expect("first init");
+        assert_eq!(
+            first_init.uri.as_str(),
+            "https://example.test/video/media.mp4"
+        );
+        assert_eq!(
+            first_init.byte_range,
+            Some(HlsByteRange {
+                offset: 0,
+                length: 20
+            })
+        );
+        let replacement = parsed.segments[2]
+            .init_segment
+            .as_ref()
+            .expect("replacement init");
+        assert_eq!(
+            replacement.uri.as_str(),
+            "https://example.test/video/second.mp4"
+        );
+    }
+
+    #[test]
+    fn malformed_media_playlist_corpus_is_rejected() {
+        let base = url("https://example.test/vod/index.m3u8");
+        let cases = [
+            ("not hls", HlsMediaError::MissingHeader),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmaster.m3u8",
+                HlsMediaError::MasterPlaylist,
+            ),
+            (
+                "#EXTM3U\n#EXTINF:4,\nsegment.ts\n#EXT-X-ENDLIST",
+                HlsMediaError::MissingAttribute {
+                    tag: "playlist",
+                    attribute: "EXT-X-TARGETDURATION",
+                },
+            ),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:0,\nsegment.ts",
+                HlsMediaError::InvalidAttribute {
+                    attribute: "EXTINF duration",
+                },
+            ),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\n#EXT-X-BYTERANGE:10\nblob.ts",
+                HlsMediaError::MissingByteRangeOffset,
+            ),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nfile:///secret",
+                HlsMediaError::InvalidUri,
+            ),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,",
+                HlsMediaError::MalformedTag("segment"),
+            ),
+        ];
+        for (manifest, expected) in cases {
+            assert_eq!(parse_hls_media_playlist(manifest, &base), Err(expected));
+        }
     }
 }
