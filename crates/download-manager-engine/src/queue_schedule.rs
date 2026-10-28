@@ -18,6 +18,20 @@ pub enum QueueScheduleError {
     NonexistentLocalTime { local: NaiveDateTime, time_zone: Tz },
     #[error("{local} is ambiguous in {time_zone}")]
     AmbiguousLocalTime { local: NaiveDateTime, time_zone: Tz },
+    #[error("scheduler watermark {last_observed_at} is after wake time {woke_at}")]
+    InvalidWakeWindow {
+        last_observed_at: DateTime<Utc>,
+        woke_at: DateTime<Utc>,
+    },
+}
+
+/// What to do when scheduled occurrences elapsed while the scheduler was unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissedRunPolicy {
+    /// Discard elapsed occurrences and wait for the next recurrence.
+    Skip,
+    /// Coalesce all elapsed occurrences into one immediate queue start.
+    RunOnWake,
 }
 
 /// The supported bounded recurrence forms for one named queue.
@@ -128,6 +142,93 @@ impl QueueSchedule {
         }
     }
 
+    /// Decides whether this queue should start once at `woke_at` after an offline or restart gap.
+    ///
+    /// `last_observed_at` is the caller's durable scheduler watermark. The interval is open at that
+    /// watermark and closed at `woke_at`, so persisting the new watermark after handling a decision
+    /// prevents a restart from starting the same occurrence again. A nonexistent DST wall time is
+    /// a missed occurrence. An ambiguous wall time occurs once, at its earlier UTC instant.
+    ///
+    /// # Errors
+    /// Returns an error when the watermark is later than the wake time.
+    pub fn should_run_on_wake(
+        &self,
+        last_observed_at: DateTime<Utc>,
+        woke_at: DateTime<Utc>,
+        policy: MissedRunPolicy,
+    ) -> Result<bool, QueueScheduleError> {
+        if last_observed_at > woke_at {
+            return Err(QueueScheduleError::InvalidWakeWindow {
+                last_observed_at,
+                woke_at,
+            });
+        }
+        if policy == MissedRunPolicy::Skip || last_observed_at == woke_at {
+            return Ok(false);
+        }
+
+        Ok(self.has_occurrence_in(last_observed_at, woke_at))
+    }
+
+    fn has_occurrence_in(&self, last_observed_at: DateTime<Utc>, woke_at: DateTime<Utc>) -> bool {
+        match &self.recurrence {
+            QueueRecurrence::OneTime { local_at } => {
+                self.local_occurs_in(*local_at, last_observed_at, woke_at)
+            }
+            QueueRecurrence::Weekly {
+                weekdays,
+                local_time,
+            } => {
+                let last_local_date = last_observed_at.with_timezone(&self.time_zone).date_naive();
+                let woke_local_date = woke_at.with_timezone(&self.time_zone).date_naive();
+                // Every selected weekday occurs in an eight-date suffix. Older dates cannot alter
+                // this boolean decision and need not make a long-offline scan unbounded.
+                let first_date = (woke_local_date - chrono::Days::new(8)).max(last_local_date);
+                let mut date = first_date;
+                while date <= woke_local_date {
+                    if weekdays.contains(&date.weekday())
+                        && self.local_occurs_in(
+                            date.and_time(*local_time),
+                            last_observed_at,
+                            woke_at,
+                        )
+                    {
+                        return true;
+                    }
+                    date = date
+                        .succ_opt()
+                        .expect("bounded scheduler dates remain valid");
+                }
+                false
+            }
+        }
+    }
+
+    fn local_occurs_in(
+        &self,
+        local: NaiveDateTime,
+        last_observed_at: DateTime<Utc>,
+        woke_at: DateTime<Utc>,
+    ) -> bool {
+        match self.time_zone.from_local_datetime(&local) {
+            LocalResult::Single(value) => {
+                let instant = value.with_timezone(&Utc);
+                instant > last_observed_at && instant <= woke_at
+            }
+            LocalResult::Ambiguous(first, second) => {
+                let instant = first.min(second).with_timezone(&Utc);
+                instant > last_observed_at && instant <= woke_at
+            }
+            LocalResult::None => {
+                let last_local = last_observed_at
+                    .with_timezone(&self.time_zone)
+                    .naive_local();
+                let woke_local = woke_at.with_timezone(&self.time_zone).naive_local();
+                local > last_local && local <= woke_local
+            }
+        }
+    }
+
     fn resolve_local(&self, local: NaiveDateTime) -> Result<DateTime<Utc>, QueueScheduleError> {
         match self.time_zone.from_local_datetime(&local) {
             LocalResult::Single(value) => Ok(value.with_timezone(&Utc)),
@@ -147,7 +248,7 @@ impl QueueSchedule {
 mod tests {
     use chrono::{DateTime, NaiveDate, NaiveTime, Utc, Weekday};
 
-    use super::{QueueRecurrence, QueueSchedule, QueueScheduleError};
+    use super::{MissedRunPolicy, QueueRecurrence, QueueSchedule, QueueScheduleError};
 
     struct NextRunCase {
         name: &'static str,
@@ -286,6 +387,87 @@ mod tests {
         assert!(matches!(
             fold.next_run_after(utc("2026-10-31T00:00:00Z")),
             Err(QueueScheduleError::AmbiguousLocalTime { .. })
+        ));
+    }
+
+    #[test]
+    fn dst_gap_and_fold_have_explicit_once_only_wake_behavior() {
+        let gap = QueueSchedule::new("Night", "America/New_York", weekly(&[Weekday::Sun], 2, 30))
+            .expect("gap schedule");
+        assert!(
+            gap.should_run_on_wake(
+                utc("2026-03-08T06:55:00Z"),
+                utc("2026-03-08T07:05:00Z"),
+                MissedRunPolicy::RunOnWake,
+            )
+            .expect("gap decision")
+        );
+        assert!(
+            !gap.should_run_on_wake(
+                utc("2026-03-08T06:55:00Z"),
+                utc("2026-03-08T07:05:00Z"),
+                MissedRunPolicy::Skip,
+            )
+            .expect("gap skip")
+        );
+
+        let fold = QueueSchedule::new(
+            "Night",
+            "America/New_York",
+            QueueRecurrence::OneTime {
+                local_at: local(2026, 11, 1, 1, 30),
+            },
+        )
+        .expect("fold schedule");
+        assert!(
+            fold.should_run_on_wake(
+                utc("2026-11-01T05:20:00Z"),
+                utc("2026-11-01T05:40:00Z"),
+                MissedRunPolicy::RunOnWake,
+            )
+            .expect("first fold decision")
+        );
+        assert!(
+            !fold
+                .should_run_on_wake(
+                    utc("2026-11-01T05:40:00Z"),
+                    utc("2026-11-01T06:40:00Z"),
+                    MissedRunPolicy::RunOnWake,
+                )
+                .expect("second fold decision")
+        );
+    }
+
+    #[test]
+    fn offline_and_restart_windows_coalesce_or_skip_missed_runs() {
+        let schedule =
+            QueueSchedule::new("Night", "UTC", weekly(&[Weekday::Mon, Weekday::Fri], 8, 0))
+                .expect("weekly schedule");
+        let durable_watermark = utc("2026-10-23T07:00:00Z");
+        let woke_at = utc("2026-11-02T09:00:00Z");
+
+        assert!(
+            schedule
+                .should_run_on_wake(durable_watermark, woke_at, MissedRunPolicy::RunOnWake,)
+                .expect("offline decision")
+        );
+        assert!(
+            !schedule
+                .should_run_on_wake(durable_watermark, woke_at, MissedRunPolicy::Skip)
+                .expect("offline skip")
+        );
+        assert!(
+            !schedule
+                .should_run_on_wake(
+                    woke_at,
+                    utc("2026-11-02T09:01:00Z"),
+                    MissedRunPolicy::RunOnWake,
+                )
+                .expect("restart after persisted watermark")
+        );
+        assert!(matches!(
+            schedule.should_run_on_wake(woke_at, durable_watermark, MissedRunPolicy::RunOnWake),
+            Err(QueueScheduleError::InvalidWakeWindow { .. })
         ));
     }
 
