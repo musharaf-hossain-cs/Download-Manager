@@ -16,6 +16,7 @@ pub mod fairness;
 pub mod filename;
 pub mod finalize;
 pub mod grabber;
+pub mod grabber_css;
 pub mod hls;
 pub mod integrity;
 pub mod ipc;

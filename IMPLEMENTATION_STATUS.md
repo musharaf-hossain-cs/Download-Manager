@@ -1,7 +1,7 @@
 # Implementation Status
 
-- Last updated: 2026-10-28
-- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S136)
+- Last updated: 2026-10-29
+- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S137)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -145,7 +145,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S133 | DONE | Engine `system_policy::tests` use a mock Windows-state adapter to verify metered ask/pause/allow, roaming default-pause, battery speed/connection reduction and known-large-job pause, fail-closed unavailable state, and owner-aware recovery that resumes only system-policy pauses; focused tests and strict clippy pass. |
 | S134 | DONE | Engine `route_reconnect::tests` verify physical/VPN route changes invalidate old connection generations, recreate only durable missing suffixes, preserve completed ranges, deduplicate unchanged-route notifications, and atomically reject invalid checkpoint sets or route keys; all fast verification gates pass. |
 | S135 | DONE | Engine `grabber::tests` exercise a bounded breadth-first same-host HTML crawler across cyclic links, relative and first-base URL resolution, fragment/default-port/dot-segment canonicalization, exact-host rejection, and typed fetch failures; focused engine tests pass. |
-| S136 | TODO | — |
+| S136 | DONE | Engine `grabber_css::tests` verify bounded CSS `@import`/`url()` discovery, relative resolution, canonical fragment/dot-segment deduplication, exact-host enforcement, and comment/string/non-HTTP rejection; focused engine and documentation checks pass. |
 | S137 | TODO | — |
 | S138 | TODO | — |
 | S139 | TODO | — |
