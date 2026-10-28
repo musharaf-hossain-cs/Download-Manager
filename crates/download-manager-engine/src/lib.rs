@@ -3,6 +3,7 @@
 pub mod adaptive;
 pub mod audio_output;
 pub mod auth;
+pub mod bandwidth_schedule;
 pub mod benchmark;
 pub mod checkpoint;
 pub mod credentials;
