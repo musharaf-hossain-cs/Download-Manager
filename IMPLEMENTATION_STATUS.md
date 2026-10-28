@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S127)
+- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S128)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -136,7 +136,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S124 | DONE | Engine `limits::tests::per_queue_caps_never_exceed_under_mixed_jobs` verifies independent named-queue permits never exceed configured concurrent-download caps, released slots are reusable, and active counts return to zero; invalid names, zero caps, and unknown queues are rejected; focused engine tests and clippy pass. |
 | S125 | DONE | Engine `queue_schedule::tests` use a fake-clock next-run table to verify one-time and normalized weekly recurrence across UTC, Dhaka, New York, and Berlin IANA zones; invalid zones/empty weekdays are rejected and DST gaps/folds remain explicit policy errors for S126; focused engine tests and clippy pass. |
 | S126 | DONE | Engine `queue_schedule::tests` verify configurable missed-run skip/run-on-wake decisions, coalesced long-offline occurrences, durable-watermark restart deduplication, nonexistent DST gaps, and once-only earlier-instant behavior for folds; full Rust quality gates pass with 142 tests and one recovery helper ignored. |
-| S127 | TODO | — |
+| S127 | DONE | Engine `queue_stop::tests` use fake time and cumulative metrics to verify stop-at-time plus completed-file, transferred-byte, and failure thresholds below/at/above each boundary, stable simultaneous-condition precedence, disabled conditions, zero rejection, and overflow-safe maxima; full Rust quality gates pass with 147 tests and one recovery helper ignored. |
 | S128 | TODO | — |
 | S129 | TODO | — |
 | S130 | TODO | — |
