@@ -12,10 +12,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    credentials::CredentialRef,
     domain::{
-        DownloadKind, EventId, JobId, JobMetadata, Priority, RangeCapability, RemoteIdentity,
-        Segment, SegmentId, UnixMillis, ValidationError,
+        DownloadKind, EventId, HttpUrl, JobId, JobMetadata, Priority, RangeCapability,
+        RemoteIdentity, Segment, SegmentId, UnixMillis, ValidationError,
     },
+    request_context::{RequestContext, RequestContextError, sanitize_durable_url},
     state::{DownloadEvent, DownloadState, StateTransition, TransitionError, reduce_state},
 };
 
@@ -27,6 +29,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 2,
         sql: include_str!("../migrations/002_segments_events.sql"),
+    },
+    Migration {
+        version: 3,
+        sql: include_str!("../migrations/003_request_contexts.sql"),
     },
 ];
 
@@ -44,6 +50,10 @@ pub enum StorageError {
     Corrupt(String),
     #[error("numeric value does not fit in SQLite INTEGER: {0}")]
     IntegerOverflow(u64),
+    #[error("request context is invalid: {0}")]
+    RequestContext(#[from] RequestContextError),
+    #[error("expired request-context secret cleanup failed: {0}")]
+    SecretCleanup(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -473,6 +483,105 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Inserts or replaces the sanitized, expiring request context for one job.
+    ///
+    /// Only vault references are accepted; actual header, credential, and cookie values never
+    /// cross this persistence boundary.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] when the job is missing or persistence fails.
+    pub fn save_request_context(&mut self, context: &RequestContext) -> Result<(), StorageError> {
+        let credential = context.credential_reference();
+        let cookie = context.cookie_reference();
+        self.connection.execute(
+            "INSERT INTO request_contexts \
+             (job_id, referer, origin, user_agent, header_profile, credential_service, \
+              credential_account, cookie_service, cookie_account, expires_at_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             ON CONFLICT(job_id) DO UPDATE SET \
+             referer=excluded.referer, origin=excluded.origin, user_agent=excluded.user_agent, \
+             header_profile=excluded.header_profile, credential_service=excluded.credential_service, \
+             credential_account=excluded.credential_account, cookie_service=excluded.cookie_service, \
+             cookie_account=excluded.cookie_account, expires_at_ms=excluded.expires_at_ms",
+            params![
+                context.job_id().to_string(),
+                context.referer().map(ToString::to_string),
+                context.origin().map(ToString::to_string),
+                context.user_agent(),
+                context.header_profile(),
+                credential.map(|reference| reference.service.as_str()),
+                credential.map(|reference| reference.account.as_str()),
+                cookie.map(|reference| reference.service.as_str()),
+                cookie.map(|reference| reference.account.as_str()),
+                context.expires_at().get(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Loads one sanitized request context.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for invalid persisted data or SQLite failures.
+    pub fn request_context(&self, job_id: JobId) -> Result<Option<RequestContext>, StorageError> {
+        self.connection
+            .query_row(
+                "SELECT job_id, referer, origin, user_agent, header_profile, credential_service, \
+                 credential_account, cookie_service, cookie_account, expires_at_ms \
+                 FROM request_contexts WHERE job_id=?1",
+                [job_id.to_string()],
+                row_to_request_context,
+            )
+            .optional()?
+            .map(request_context_from_row)
+            .transpose()
+    }
+
+    /// Deletes vault secrets and database rows for every expired request context.
+    ///
+    /// The deletion callback must be idempotent. A callback failure leaves all database rows in
+    /// place so cleanup can be retried without losing the vault references.
+    ///
+    /// # Errors
+    /// Returns [`StorageError::SecretCleanup`] if the vault callback fails, without deleting rows.
+    pub fn cleanup_expired_request_contexts<E>(
+        &mut self,
+        now: UnixMillis,
+        mut delete_secret: impl FnMut(&CredentialRef) -> Result<(), E>,
+    ) -> Result<usize, StorageError>
+    where
+        E: std::fmt::Display,
+    {
+        let contexts = {
+            let mut statement = self.connection.prepare(
+                "SELECT job_id, referer, origin, user_agent, header_profile, credential_service, \
+                 credential_account, cookie_service, cookie_account, expires_at_ms \
+                 FROM request_contexts WHERE expires_at_ms <= ?1 ORDER BY job_id",
+            )?;
+            statement
+                .query_map([now.get()], row_to_request_context)?
+                .map(|row| row.and_then(request_context_from_sql_row))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for context in &contexts {
+            if let Some(reference) = context.credential_reference() {
+                delete_secret(reference)
+                    .map_err(|error| StorageError::SecretCleanup(error.to_string()))?;
+            }
+            if let Some(reference) = context.cookie_reference()
+                && context.credential_reference() != Some(reference)
+            {
+                delete_secret(reference)
+                    .map_err(|error| StorageError::SecretCleanup(error.to_string()))?;
+            }
+        }
+        let deleted = self.connection.execute(
+            "DELETE FROM request_contexts WHERE expires_at_ms <= ?1",
+            [now.get()],
+        )?;
+        Ok(deleted)
+    }
+
     /// Atomically updates the authoritative state and journals the acknowledged transition.
     ///
     /// # Errors
@@ -714,11 +823,27 @@ fn insert_job(transaction: &Transaction<'_>, metadata: &JobMetadata) -> Result<(
 
 fn job_params(metadata: &JobMetadata) -> Result<Vec<rusqlite::types::Value>, StorageError> {
     use rusqlite::types::Value;
+    let (source_url, final_url, display_url) = if metadata.kind == DownloadKind::Media {
+        let source_url = sanitize_durable_url(&metadata.source_url)?;
+        let final_url = metadata
+            .final_url
+            .as_ref()
+            .map(sanitize_durable_url)
+            .transpose()?;
+        let display_url = final_url.as_ref().unwrap_or(&source_url).to_string();
+        (source_url, final_url, display_url)
+    } else {
+        (
+            metadata.source_url.clone(),
+            metadata.final_url.clone(),
+            metadata.display_url.clone(),
+        )
+    };
     Ok(vec![
         Value::Text(metadata.id.to_string()),
-        Value::Text(metadata.source_url.to_string()),
-        optional_text(metadata.final_url.as_ref().map(ToString::to_string)),
-        Value::Text(metadata.display_url.clone()),
+        Value::Text(source_url.to_string()),
+        optional_text(final_url.as_ref().map(ToString::to_string)),
+        Value::Text(display_url),
         Value::Text(metadata.filename.clone()),
         Value::Text(metadata.destination.to_string_lossy().into_owned()),
         Value::Text(metadata.state.as_str().to_owned()),
@@ -825,6 +950,71 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEvent> {
         correlation_id: row.get(7)?,
         redacted_detail: row.get(8)?,
     })
+}
+
+type RequestContextRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i64,
+);
+
+fn row_to_request_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestContextRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+    ))
+}
+
+fn request_context_from_sql_row(row: RequestContextRow) -> rusqlite::Result<RequestContext> {
+    request_context_from_row(row).map_err(sql_conversion_error)
+}
+
+fn request_context_from_row(row: RequestContextRow) -> Result<RequestContext, StorageError> {
+    let (
+        job_id,
+        referer,
+        origin,
+        user_agent,
+        header_profile,
+        credential_service,
+        credential_account,
+        cookie_service,
+        cookie_account,
+        expires_at,
+    ) = row;
+    let referer = referer.map(HttpUrl::parse).transpose()?;
+    let origin = origin.map(HttpUrl::parse).transpose()?;
+    let credential_reference = credential_service
+        .zip(credential_account)
+        .map(|(service, account)| CredentialRef { service, account });
+    let cookie_reference = cookie_service
+        .zip(cookie_account)
+        .map(|(service, account)| CredentialRef { service, account });
+    Ok(RequestContext::new(
+        job_id.parse()?,
+        referer.as_ref(),
+        origin.as_ref(),
+        user_agent,
+        header_profile,
+        credential_reference,
+        cookie_reference,
+        UnixMillis::new(expires_at)?,
+    )?)
 }
 
 fn validate_event(event: &AuditEvent) -> Result<(), StorageError> {
@@ -938,17 +1128,19 @@ struct StoredValueError(String);
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use rusqlite::Connection;
     use tempfile::tempdir;
 
-    use super::{AuditEvent, Database, EventId, Migration, RetentionResult};
+    use super::{AuditEvent, Database, EventId, Migration, RetentionResult, StorageError};
     use crate::{
+        credentials::CredentialRef,
         domain::{
             DownloadKind, HttpUrl, JobId, JobMetadata, Priority, RangeCapability, RemoteIdentity,
             Segment, SegmentId, UnixMillis,
         },
+        request_context::RequestContext,
         state::DownloadState,
     };
 
@@ -997,10 +1189,10 @@ mod tests {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("state.sqlite");
         let database = Database::open(&path).expect("create database");
-        assert_eq!(database.schema_version().expect("version"), 2);
+        assert_eq!(database.schema_version().expect("version"), 3);
         drop(database);
         let reopened = Database::open(&path).expect("reopen database");
-        assert_eq!(reopened.schema_version().expect("version"), 2);
+        assert_eq!(reopened.schema_version().expect("version"), 3);
         assert!(reopened.migration_backup().is_none());
     }
 
@@ -1033,6 +1225,150 @@ mod tests {
         );
         assert!(database.delete_job(metadata.id).expect("delete job"));
         assert!(database.get_job(metadata.id).expect("read").is_none());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn media_request_context_never_persists_logs_or_exports_plaintext_secrets_and_expires() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("state.sqlite");
+        let mut database = Database::open(&path).expect("database");
+        let secret = format!("signed-secret-{}", JobId::new());
+        let mut metadata = job(DownloadState::NeedsRefresh, 1);
+        metadata.kind = DownloadKind::Media;
+        metadata.source_url = HttpUrl::parse(format!(
+            "https://media.example/manifest.m3u8?token={secret}#player"
+        ))
+        .expect("source URL");
+        metadata.final_url = Some(
+            HttpUrl::parse(format!(
+                "https://cdn.example/manifest.m3u8?signature={secret}"
+            ))
+            .expect("final URL"),
+        );
+        metadata.display_url = metadata.source_url.to_string();
+        database.create_job(&metadata, None).expect("media job");
+
+        let cookie_reference = CredentialRef {
+            service: "DownloadManager/request-context/cookie".to_owned(),
+            account: "profile-one".to_owned(),
+        };
+        let context = RequestContext::new(
+            metadata.id,
+            Some(&metadata.source_url),
+            Some(
+                &HttpUrl::parse(format!("https://media.example/watch?session={secret}"))
+                    .expect("origin"),
+            ),
+            Some("FixtureBrowser/1.0".to_owned()),
+            Some("media-default".to_owned()),
+            None,
+            Some(cookie_reference.clone()),
+            timestamp(10),
+        )
+        .expect("request context");
+        database
+            .save_request_context(&context)
+            .expect("save context");
+        database
+            .append_event(&AuditEvent {
+                id: EventId::new(),
+                job_id: metadata.id,
+                sequence: 0,
+                timestamp: timestamp(2),
+                component: "media".to_owned(),
+                severity: "info".to_owned(),
+                event_type: "request_context_saved".to_owned(),
+                correlation_id: None,
+                redacted_detail: format!("{context:?}"),
+            })
+            .expect("safe log event");
+
+        let stored_job = database
+            .get_job(metadata.id)
+            .expect("read job")
+            .expect("job");
+        let stored_context = database
+            .request_context(metadata.id)
+            .expect("read context")
+            .expect("context");
+        assert_eq!(
+            stored_job.metadata.source_url.as_str(),
+            "https://media.example/manifest.m3u8"
+        );
+        assert_eq!(
+            stored_job.metadata.final_url.as_ref().map(HttpUrl::as_str),
+            Some("https://cdn.example/manifest.m3u8")
+        );
+        assert_eq!(
+            stored_job.metadata.display_url,
+            "https://cdn.example/manifest.m3u8"
+        );
+        let export = serde_json::to_vec(&(stored_job.metadata, &stored_context))
+            .expect("non-secret export fixture");
+        assert!(
+            !export
+                .windows(secret.len())
+                .any(|value| value == secret.as_bytes())
+        );
+        assert!(
+            database
+                .events(metadata.id)
+                .expect("events")
+                .iter()
+                .all(|event| !event.redacted_detail.contains(&secret))
+        );
+        database
+            .connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .expect("checkpoint database");
+        for entry in fs::read_dir(directory.path()).expect("database directory") {
+            let bytes = fs::read(entry.expect("entry").path()).expect("database artifact");
+            assert!(
+                !bytes
+                    .windows(secret.len())
+                    .any(|value| value == secret.as_bytes()),
+                "plaintext secret reached a database artifact"
+            );
+        }
+
+        assert_eq!(
+            database
+                .cleanup_expired_request_contexts(timestamp(9), |_: &CredentialRef| {
+                    Ok::<_, String>(())
+                })
+                .expect("not expired"),
+            0
+        );
+        let failure = database
+            .cleanup_expired_request_contexts(timestamp(10), |_: &CredentialRef| {
+                Err::<(), _>("vault unavailable")
+            })
+            .expect_err("vault failure");
+        assert!(matches!(failure, StorageError::SecretCleanup(_)));
+        assert!(
+            database
+                .request_context(metadata.id)
+                .expect("read after failed cleanup")
+                .is_some()
+        );
+        let mut removed = Vec::new();
+        assert_eq!(
+            database
+                .cleanup_expired_request_contexts(timestamp(10), |reference| {
+                    removed.push(reference.clone());
+                    Ok::<_, String>(())
+                })
+                .expect("cleanup"),
+            1
+        );
+        assert_eq!(removed, vec![cookie_reference]);
+        assert!(
+            database
+                .request_context(metadata.id)
+                .expect("read after cleanup")
+                .is_none()
+        );
     }
 
     #[test]

@@ -28,6 +28,7 @@ pub mod network_metrics;
 pub mod probe;
 pub mod proxy;
 pub mod recovery;
+pub mod request_context;
 pub mod resume;
 pub mod retry;
 pub mod scheduler;
