@@ -17,6 +17,12 @@ pub enum LimitError {
     UnknownJob,
     #[error("connection caps must be greater than zero")]
     InvalidConnectionCap,
+    #[error("queue name must contain 1 to 256 characters without surrounding whitespace")]
+    InvalidQueueName,
+    #[error("queue concurrent-download cap must be greater than zero")]
+    InvalidQueueCap,
+    #[error("queue has no configured concurrent-download cap")]
+    UnknownQueue,
 }
 
 #[derive(Debug, Clone)]
@@ -213,9 +219,126 @@ impl Drop for ConnectionPermit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueConcurrencySnapshot {
+    pub limit: u32,
+    pub active: u32,
+    pub peak: u32,
+}
+
+#[derive(Debug)]
+struct QueueConcurrencyEntry {
+    limit: u32,
+    active: u32,
+    peak: u32,
+}
+
+/// Cloneable permit source enforcing an independent concurrent-download cap per named queue.
+#[derive(Debug, Clone, Default)]
+pub struct QueueConcurrencyLimiter {
+    queues: Arc<Mutex<HashMap<String, QueueConcurrencyEntry>>>,
+}
+
+impl QueueConcurrencyLimiter {
+    /// Adds or replaces one named queue's non-zero concurrent-download cap.
+    ///
+    /// Reconfiguring an active queue keeps its current count. If the new cap is below that count,
+    /// no additional permits are granted until enough active permits have been released.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid queue name or a zero cap.
+    ///
+    /// # Panics
+    /// Panics if another thread poisoned the internal limiter lock.
+    pub fn configure_queue(&self, queue_name: &str, limit: u32) -> Result<(), LimitError> {
+        validate_queue_name(queue_name)?;
+        if limit == 0 {
+            return Err(LimitError::InvalidQueueCap);
+        }
+        let mut queues = self.queues.lock().expect("queue limiter lock");
+        let entry = queues
+            .entry(queue_name.to_owned())
+            .or_insert(QueueConcurrencyEntry {
+                limit,
+                active: 0,
+                peak: 0,
+            });
+        entry.limit = limit;
+        Ok(())
+    }
+
+    /// Attempts to reserve one active download slot until the returned permit is dropped.
+    ///
+    /// # Errors
+    /// Returns an error when the queue has not been configured.
+    ///
+    /// # Panics
+    /// Panics if another thread poisoned the internal limiter lock.
+    pub fn try_acquire(
+        &self,
+        queue_name: &str,
+    ) -> Result<Option<QueueConcurrencyPermit>, LimitError> {
+        let mut queues = self.queues.lock().expect("queue limiter lock");
+        let entry = queues.get_mut(queue_name).ok_or(LimitError::UnknownQueue)?;
+        if entry.active >= entry.limit {
+            return Ok(None);
+        }
+        entry.active += 1;
+        entry.peak = entry.peak.max(entry.active);
+        Ok(Some(QueueConcurrencyPermit {
+            queues: Arc::clone(&self.queues),
+            queue_name: queue_name.to_owned(),
+        }))
+    }
+
+    /// Returns the current, peak, and configured counts for one named queue.
+    ///
+    /// # Errors
+    /// Returns an error when the queue has not been configured.
+    ///
+    /// # Panics
+    /// Panics if another thread poisoned the internal limiter lock.
+    pub fn snapshot(&self, queue_name: &str) -> Result<QueueConcurrencySnapshot, LimitError> {
+        let queues = self.queues.lock().expect("queue limiter lock");
+        let entry = queues.get(queue_name).ok_or(LimitError::UnknownQueue)?;
+        Ok(QueueConcurrencySnapshot {
+            limit: entry.limit,
+            active: entry.active,
+            peak: entry.peak,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct QueueConcurrencyPermit {
+    queues: Arc<Mutex<HashMap<String, QueueConcurrencyEntry>>>,
+    queue_name: String,
+}
+
+impl Drop for QueueConcurrencyPermit {
+    fn drop(&mut self) {
+        let mut queues = self.queues.lock().expect("queue limiter lock");
+        let entry = queues
+            .get_mut(&self.queue_name)
+            .expect("configured queue remains while permits exist");
+        entry.active -= 1;
+    }
+}
+
+fn validate_queue_name(queue_name: &str) -> Result<(), LimitError> {
+    let length = queue_name.chars().count();
+    if queue_name.trim() != queue_name || !(1..=256).contains(&length) {
+        return Err(LimitError::InvalidQueueName);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BandwidthLimiter, ConnectionCapSnapshot, ConnectionLimiter};
+    use super::{
+        BandwidthLimiter, ConnectionCapSnapshot, ConnectionLimiter, LimitError,
+        QueueConcurrencyLimiter, QueueConcurrencySnapshot,
+    };
     use crate::domain::JobId;
 
     #[test]
@@ -268,5 +391,69 @@ mod tests {
         permits.clear();
         assert_eq!(limiter.snapshot().active_global, 0);
         assert!(limiter.try_acquire("example.test").is_some());
+    }
+
+    #[test]
+    fn per_queue_caps_never_exceed_under_mixed_jobs() {
+        let limiter = QueueConcurrencyLimiter::default();
+        limiter.configure_queue("Night", 2).expect("night cap");
+        limiter.configure_queue("Work", 1).expect("work cap");
+
+        let night_one = limiter
+            .try_acquire("Night")
+            .expect("known queue")
+            .expect("first night job");
+        let night_two = limiter
+            .try_acquire("Night")
+            .expect("known queue")
+            .expect("second night job");
+        assert!(limiter.try_acquire("Night").expect("known queue").is_none());
+        let work = limiter
+            .try_acquire("Work")
+            .expect("known queue")
+            .expect("first work job");
+        assert!(limiter.try_acquire("Work").expect("known queue").is_none());
+        assert_eq!(
+            limiter.snapshot("Night").expect("night snapshot"),
+            QueueConcurrencySnapshot {
+                limit: 2,
+                active: 2,
+                peak: 2,
+            }
+        );
+        assert_eq!(
+            limiter.snapshot("Work").expect("work snapshot"),
+            QueueConcurrencySnapshot {
+                limit: 1,
+                active: 1,
+                peak: 1,
+            }
+        );
+
+        drop(night_one);
+        let replacement = limiter
+            .try_acquire("Night")
+            .expect("known queue")
+            .expect("released night slot");
+        drop((night_two, replacement, work));
+        assert_eq!(limiter.snapshot("Night").expect("night snapshot").active, 0);
+        assert_eq!(limiter.snapshot("Work").expect("work snapshot").active, 0);
+    }
+
+    #[test]
+    fn queue_caps_reject_invalid_configuration_and_unknown_queues() {
+        let limiter = QueueConcurrencyLimiter::default();
+        assert_eq!(
+            limiter.configure_queue(" Night", 1),
+            Err(LimitError::InvalidQueueName)
+        );
+        assert_eq!(
+            limiter.configure_queue("Night", 0),
+            Err(LimitError::InvalidQueueCap)
+        );
+        assert!(matches!(
+            limiter.try_acquire("Missing"),
+            Err(LimitError::UnknownQueue)
+        ));
     }
 }

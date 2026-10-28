@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S124)
+- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S126)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -133,7 +133,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S121 | DONE | Engine `hls::tests` verify clear live rolling-window deduplication, rollover gap reporting, complete-segment duration stops, cooperative cancellation before the next request, end-list completion, exact bytes/duration/SHA-256 accounting, and partial preservation on transfer failure; all fast verification gates pass. |
 | S122 | DONE | Engine schema v4 persists validated named queues with atomic, exact-permutation ordering; `storage::tests::named_queue_order_is_atomic_and_stable_across_restart` verifies creation order, reorder rollback, timestamps, positions, and restart stability; engine format/clippy pass, with 135 tests passed and one recovery helper ignored. |
 | S123 | DONE | Desktop `queues.test.ts` verifies ordered cross-queue move/copy, exact-permutation reorder, mixed-state manual start/stop eligibility, deduplicated missing-job reporting, authoritative snapshots, and rejected-mutation rollback; full desktop tests, typecheck, and documentation gates pass. |
-| S124 | TODO | — |
+| S124 | DONE | Engine `limits::tests::per_queue_caps_never_exceed_under_mixed_jobs` verifies independent named-queue permits never exceed configured concurrent-download caps, released slots are reusable, and active counts return to zero; invalid names, zero caps, and unknown queues are rejected; focused engine tests and clippy pass. |
 | S125 | DONE | Engine `queue_schedule::tests` use a fake-clock next-run table to verify one-time and normalized weekly recurrence across UTC, Dhaka, New York, and Berlin IANA zones; invalid zones/empty weekdays are rejected and DST gaps/folds remain explicit policy errors for S126; focused engine tests and clippy pass. |
 | S126 | TODO | — |
 | S127 | TODO | — |
