@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S140)
+- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S141)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -149,7 +149,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S137 | DONE | Engine `grabber_limits::tests` use virtual time and opaque request identities to verify exact depth, page, byte, duration, and concurrency boundaries, atomic byte refusal, slot release, clock regression, and invalid-limit rejection; strict clippy and focused tests pass. |
 | S138 | DONE | Engine `grabber_filter::tests` verify first-match ordered include/exclude URL globs, explainable rule/preset outcomes, Images/Documents/Media/AllSite fallback tables, case and MIME-parameter normalization, explicit overrides, and bounded invalid configuration; strict clippy passes. |
 | S139 | DONE | Engine `grabber_policy::tests` verify bounded product-specific robots rules, longest-match/allow-tie/wildcard semantics, default-on conservative per-origin virtual-time spacing, stricter crawl-delay, form-action rejection, structural login/logout/delete blocking, false-positive avoidance, and fail-closed malformed input; strict clippy passes. |
-| S140 | TODO | — |
+| S140 | DONE | Engine `grabber_offline::tests` verify traversal/device-name sanitization, query collision isolation, exact-host mapping, effective-base HTML and CSS rewriting, cross-host preservation, and that every local reference resolves beneath the selected destination; strict clippy and the full engine suite pass. |
 | S141 | TODO | — |
 | S142 | DONE | CLI `add_json_golden_preserves_quoted_values_and_start_choice`, stable list/status golden-output tests, distinct usage/not-found/rejected/transport exit contracts, and the thin binary's transport-unavailable path pass; focused CLI tests and strict clippy pass. |
 | S143 | TODO | — |
