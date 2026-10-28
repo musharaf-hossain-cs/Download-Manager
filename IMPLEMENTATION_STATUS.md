@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S137)
+- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S138)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -146,7 +146,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S134 | DONE | Engine `route_reconnect::tests` verify physical/VPN route changes invalidate old connection generations, recreate only durable missing suffixes, preserve completed ranges, deduplicate unchanged-route notifications, and atomically reject invalid checkpoint sets or route keys; all fast verification gates pass. |
 | S135 | DONE | Engine `grabber::tests` exercise a bounded breadth-first same-host HTML crawler across cyclic links, relative and first-base URL resolution, fragment/default-port/dot-segment canonicalization, exact-host rejection, and typed fetch failures; focused engine tests pass. |
 | S136 | DONE | Engine `grabber_css::tests` verify bounded CSS `@import`/`url()` discovery, relative resolution, canonical fragment/dot-segment deduplication, exact-host enforcement, and comment/string/non-HTTP rejection; focused engine and documentation checks pass. |
-| S137 | TODO | — |
+| S137 | DONE | Engine `grabber_limits::tests` use virtual time and opaque request identities to verify exact depth, page, byte, duration, and concurrency boundaries, atomic byte refusal, slot release, clock regression, and invalid-limit rejection; strict clippy and focused tests pass. |
 | S138 | TODO | — |
 | S139 | TODO | — |
 | S140 | TODO | — |
