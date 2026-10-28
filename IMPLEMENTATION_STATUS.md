@@ -152,7 +152,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S140 | DONE | Engine `grabber_offline::tests` verify traversal/device-name sanitization, query collision isolation, exact-host mapping, effective-base HTML and CSS rewriting, cross-host preservation, and that every local reference resolves beneath the selected destination; strict clippy and the full engine suite pass. |
 | S141 | TODO | — |
 | S142 | DONE | CLI `add_json_golden_preserves_quoted_values_and_start_choice`, stable list/status golden-output tests, distinct usage/not-found/rejected/transport exit contracts, and the thin binary's transport-unavailable path pass; focused CLI tests and strict clippy pass. |
-| S143 | TODO | — |
+| S143 | DONE | CLI `pause_resume_and_cancel_have_stable_state_contracts` and `control_rejections_preserve_engine_error_contract_and_exit_code` verify typed engine actions, acknowledged states, versioned JSON, and stable invalid-state exit 4; focused CLI tests and strict clippy pass. |
 | S144 | TODO | — |
 | S145 | TODO | — |
 | S146 | TODO | — |

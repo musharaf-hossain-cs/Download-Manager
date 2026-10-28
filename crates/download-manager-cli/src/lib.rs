@@ -4,6 +4,7 @@ use std::{ffi::OsString, fmt::Write as _, io::Write, path::PathBuf, str::FromStr
 
 use download_manager_engine::{
     domain::{HttpUrl, JobId},
+    ipc::JobAction,
     state::DownloadState,
 };
 use serde::Serialize;
@@ -13,6 +14,7 @@ pub const CLI_CONTRACT_VERSION: u16 = 1;
 pub const HELP: &str = "Download Manager command-line interface\n\n\
 Usage:\n  download-manager-cli add URL --output DIRECTORY [--name FILENAME] [--later] [--json]\n  \
 download-manager-cli list [--json]\n  download-manager-cli status JOB_ID [--json]\n  \
+download-manager-cli pause|resume|cancel JOB_ID [--json]\n  \
 download-manager-cli --version\n";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +82,12 @@ pub trait CliBackend {
     /// # Errors
     /// Returns not-found, engine rejection, or transport failure.
     fn status(&mut self, job_id: JobId) -> Result<JobView, BackendError>;
+
+    /// Applies one state-changing action through the engine authority.
+    ///
+    /// # Errors
+    /// Returns not-found, invalid-state rejection, or transport failure.
+    fn control(&mut self, job_id: JobId, action: JobAction) -> Result<JobView, BackendError>;
 }
 
 /// Safe binary fallback until the authenticated local IPC transport is wired to this contract.
@@ -97,6 +105,10 @@ impl CliBackend for UnavailableBackend {
     fn status(&mut self, _job_id: JobId) -> Result<JobView, BackendError> {
         Err(unavailable())
     }
+
+    fn control(&mut self, _job_id: JobId, _action: JobAction) -> Result<JobView, BackendError> {
+        Err(unavailable())
+    }
 }
 
 fn unavailable() -> BackendError {
@@ -110,6 +122,11 @@ enum Command {
     Add(AddRequest),
     List,
     Status(JobId),
+    Control {
+        name: &'static str,
+        job_id: JobId,
+        action: JobAction,
+    },
 }
 
 #[derive(Debug)]
@@ -186,6 +203,14 @@ where
             Ok(job) => emit_job(parsed.json, "status", &job, stdout),
             Err(error) => emit_backend_error(parsed.json, "status", &error, stderr),
         },
+        Command::Control {
+            name,
+            job_id,
+            action,
+        } => match backend.control(job_id, action) {
+            Ok(job) => emit_job(parsed.json, name, &job, stdout),
+            Err(error) => emit_backend_error(parsed.json, name, &error, stderr),
+        },
     }
 }
 
@@ -218,7 +243,23 @@ fn parse(args: Vec<OsString>) -> Result<Parsed, String> {
             let value = unicode(&filtered[1], "job ID")?;
             Command::Status(JobId::from_str(value).map_err(|error| error.to_string())?)
         }
-        "list" | "status" | "--help" | "-h" | "--version" | "-V" => {
+        name @ ("pause" | "resume" | "cancel") if filtered.len() == 2 => {
+            let value = unicode(&filtered[1], "job ID")?;
+            let job_id = JobId::from_str(value).map_err(|error| error.to_string())?;
+            let (name, action) = match name {
+                "pause" => ("pause", JobAction::Pause),
+                "resume" => ("resume", JobAction::Resume),
+                "cancel" => ("cancel", JobAction::Cancel),
+                _ => unreachable!("matched control command"),
+            };
+            Command::Control {
+                name,
+                job_id,
+                action,
+            }
+        }
+        "list" | "status" | "pause" | "resume" | "cancel" | "--help" | "-h" | "--version"
+        | "-V" => {
             return Err(format!("invalid arguments for {command}\n\n{HELP}"));
         }
         value => return Err(format!("unknown command: {value}\n\n{HELP}")),
@@ -401,7 +442,7 @@ fn emit_text<O: Write>(stdout: &mut O, output: &str, success: CliExit) -> CliExi
 mod tests {
     use std::{path::PathBuf, str::FromStr};
 
-    use download_manager_engine::{domain::JobId, state::DownloadState};
+    use download_manager_engine::{domain::JobId, ipc::JobAction, state::DownloadState};
 
     use super::{AddRequest, BackendError, CliBackend, CliExit, JobView, run};
 
@@ -410,8 +451,10 @@ mod tests {
     #[derive(Default)]
     struct FixtureBackend {
         added: Vec<AddRequest>,
+        controls: Vec<(JobId, JobAction)>,
         jobs: Vec<JobView>,
         status_error: Option<BackendError>,
+        control_error: Option<BackendError>,
     }
 
     impl CliBackend for FixtureBackend {
@@ -430,6 +473,23 @@ mod tests {
             } else {
                 Ok(self.jobs[0].clone())
             }
+        }
+
+        fn control(&mut self, job_id: JobId, action: JobAction) -> Result<JobView, BackendError> {
+            self.controls.push((job_id, action));
+            if let Some(error) = self.control_error.take() {
+                return Err(error);
+            }
+            let mut job = self.jobs[0].clone();
+            job.state = match action {
+                JobAction::Pause => DownloadState::Paused,
+                JobAction::Resume => DownloadState::Queued,
+                JobAction::Cancel => DownloadState::Cancelled,
+                JobAction::Start | JobAction::Stop => {
+                    panic!("S143 fixture accepts only pause, resume, and cancel")
+                }
+            };
+            Ok(job)
         }
     }
 
@@ -556,6 +616,55 @@ mod tests {
         assert_eq!(
             stderr,
             b"transport_unavailable: authenticated engine IPC is unavailable\n"
+        );
+    }
+
+    #[test]
+    fn pause_resume_and_cancel_have_stable_state_contracts() {
+        let cases = [
+            ("pause", JobAction::Pause, "paused"),
+            ("resume", JobAction::Resume, "queued"),
+            ("cancel", JobAction::Cancel, "cancelled"),
+        ];
+
+        for (command, expected_action, expected_state) in cases {
+            let mut backend = FixtureBackend {
+                jobs: vec![job()],
+                ..FixtureBackend::default()
+            };
+            let (exit, stdout, stderr) = invoke(&[command, JOB_ID, "--json"], &mut backend);
+
+            assert_eq!(exit, CliExit::Success, "{command}");
+            assert_eq!(stderr, "", "{command}");
+            assert_eq!(
+                stdout,
+                format!(
+                    "{{\"contract_version\":1,\"command\":\"{command}\",\"ok\":true,\"data\":{{\"id\":\"{JOB_ID}\",\"state\":\"{expected_state}\",\"filename\":\"release file.zip\",\"downloaded_bytes\":12,\"total_bytes\":100}}}}\n"
+                )
+            );
+            assert_eq!(backend.controls, vec![(job().id, expected_action)]);
+        }
+    }
+
+    #[test]
+    fn control_rejections_preserve_engine_error_contract_and_exit_code() {
+        let mut backend = FixtureBackend {
+            control_error: Some(BackendError::Rejected {
+                code: "invalid_state".to_owned(),
+                message: "cannot pause a completed job".to_owned(),
+            }),
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) = invoke(&["pause", JOB_ID, "--json"], &mut backend);
+
+        assert_eq!(exit, CliExit::Rejected);
+        assert_eq!(stdout, "");
+        assert_eq!(
+            stderr,
+            concat!(
+                r#"{"contract_version":1,"command":"pause","ok":false,"error":{"code":"invalid_state","message":"cannot pause a completed job"}}"#,
+                "\n"
+            )
         );
     }
 }
