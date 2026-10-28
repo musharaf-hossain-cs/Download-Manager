@@ -151,7 +151,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S139 | DONE | Engine `grabber_policy::tests` verify bounded product-specific robots rules, longest-match/allow-tie/wildcard semantics, default-on conservative per-origin virtual-time spacing, stricter crawl-delay, form-action rejection, structural login/logout/delete blocking, false-positive avoidance, and fail-closed malformed input; strict clippy passes. |
 | S140 | TODO | — |
 | S141 | TODO | — |
-| S142 | TODO | — |
+| S142 | DONE | CLI `add_json_golden_preserves_quoted_values_and_start_choice`, stable list/status golden-output tests, distinct usage/not-found/rejected/transport exit contracts, and the thin binary's transport-unavailable path pass; focused CLI tests and strict clippy pass. |
 | S143 | TODO | — |
 | S144 | TODO | — |
 | S145 | TODO | — |

@@ -218,6 +218,8 @@ name = "download-manager-cli"
 version = "0.1.0"
 dependencies = [
  "download-manager-engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
