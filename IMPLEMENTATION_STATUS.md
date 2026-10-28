@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S134)
+- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S135)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -143,7 +143,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S131 | DONE | Engine `transfer_quota::tests` use virtual time to verify partial grants, rolling usage expiry, anchor-aligned configured resets, reported resume times, automatic availability at reset, and fail-closed invalid configuration or clock movement; focused engine tests and clippy pass. |
 | S132 | DONE | Engine `bandwidth_schedule::tests` verify IANA-zone weekly global/exact-queue limits, lowest-cap overlap, unioned quiet state, start-inclusive/end-exclusive boundaries, and start-weekday-owned overnight windows; malformed/no-op rules fail closed, and focused tests plus strict clippy pass. |
 | S133 | DONE | Engine `system_policy::tests` use a mock Windows-state adapter to verify metered ask/pause/allow, roaming default-pause, battery speed/connection reduction and known-large-job pause, fail-closed unavailable state, and owner-aware recovery that resumes only system-policy pauses; focused tests and strict clippy pass. |
-| S134 | TODO | — |
+| S134 | DONE | Engine `route_reconnect::tests` verify physical/VPN route changes invalidate old connection generations, recreate only durable missing suffixes, preserve completed ranges, deduplicate unchanged-route notifications, and atomically reject invalid checkpoint sets or route keys; all fast verification gates pass. |
 | S135 | TODO | — |
 | S136 | TODO | — |
 | S137 | TODO | — |

@@ -35,6 +35,7 @@ pub mod recovery;
 pub mod request_context;
 pub mod resume;
 pub mod retry;
+pub mod route_reconnect;
 pub mod scheduled_wake;
 pub mod scheduler;
 pub mod segmented;
