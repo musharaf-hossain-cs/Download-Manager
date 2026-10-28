@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S133)
+- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S134)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -142,7 +142,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S130 | DONE | Engine `scheduled_wake::tests` verify supported adapters install/replace and cancel queue wake requests, unsupported platforms return a stable capability outcome without OS calls, disabling is safe, and invalid/elapsed requests fail before adapter use; focused engine tests and clippy pass. |
 | S131 | DONE | Engine `transfer_quota::tests` use virtual time to verify partial grants, rolling usage expiry, anchor-aligned configured resets, reported resume times, automatic availability at reset, and fail-closed invalid configuration or clock movement; focused engine tests and clippy pass. |
 | S132 | DONE | Engine `bandwidth_schedule::tests` verify IANA-zone weekly global/exact-queue limits, lowest-cap overlap, unioned quiet state, start-inclusive/end-exclusive boundaries, and start-weekday-owned overnight windows; malformed/no-op rules fail closed, and focused tests plus strict clippy pass. |
-| S133 | TODO | — |
+| S133 | DONE | Engine `system_policy::tests` use a mock Windows-state adapter to verify metered ask/pause/allow, roaming default-pause, battery speed/connection reduction and known-large-job pause, fail-closed unavailable state, and owner-aware recovery that resumes only system-policy pauses; focused tests and strict clippy pass. |
 | S134 | TODO | — |
 | S135 | TODO | — |
 | S136 | TODO | — |
