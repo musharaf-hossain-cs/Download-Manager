@@ -4,8 +4,12 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use reqwest::{
@@ -18,7 +22,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{HttpUrl, JobId, Segment, SegmentId, UnixMillis},
-    media::{HlsByteRange, HlsInitSegment, HlsMediaPlaylist},
+    media::{HlsByteRange, HlsInitSegment, HlsMediaPlaylist, HlsMediaSegment},
     media_refresh::{RefreshError, ValidatedRefresh, validate_hls_refresh},
     retry::{RetryDecision, RetryPolicy},
     storage::{Database, StorageError},
@@ -42,6 +46,77 @@ pub struct HlsResumeOutcome {
     pub skipped_units: usize,
     pub downloaded_units: usize,
     pub sha256: String,
+}
+
+/// Cooperative cancellation shared with a running live HLS recording.
+#[derive(Debug, Clone, Default)]
+pub struct HlsLiveControl {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl HlsLiveControl {
+    /// Requests a clean stop after the current network unit completes.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    /// Reports whether cancellation has been requested.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
+
+/// User-selected boundary for a clear live HLS recording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HlsLiveStopCondition {
+    /// Continue until the source publishes `EXT-X-ENDLIST`.
+    EndList,
+    /// Stop on the first complete segment that reaches or exceeds this duration.
+    Duration(Duration),
+}
+
+/// Why a live recording stopped without a transfer failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HlsLiveStopReason {
+    EndList,
+    DurationReached,
+    Cancelled,
+    /// The caller stopped supplying playlist snapshots before another boundary was reached.
+    SnapshotsExhausted,
+}
+
+/// Inclusive media-sequence range that rolled out before it could be recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HlsLiveGap {
+    pub first_sequence: u64,
+    pub last_sequence: u64,
+}
+
+/// Final, bounded accounting for a clear live HLS recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HlsLiveRecordingReport {
+    pub stop_reason: HlsLiveStopReason,
+    pub downloaded_bytes: u64,
+    pub media_segments: usize,
+    pub init_segments: usize,
+    pub recorded_duration: Duration,
+    pub gaps: Vec<HlsLiveGap>,
+    pub sha256: String,
+}
+
+#[derive(Debug, Error)]
+pub enum HlsLiveRecordingError {
+    #[error("live recording duration must be greater than zero")]
+    InvalidStopDuration,
+    #[error("HLS segment {sequence} has an invalid duration")]
+    InvalidSegmentDuration { sequence: u64 },
+    #[error("live HLS sequence or duration accounting overflowed")]
+    Overflow,
+    #[error(transparent)]
+    Download(#[from] HlsDownloadError),
+    #[error("filesystem operation failed: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Original and refreshed playlist pair authorized by the source browser session.
@@ -101,6 +176,246 @@ pub enum HlsResumeError {
 pub struct HlsVodDownloader {
     client: Client,
     retry_policy: RetryPolicy,
+}
+
+/// Records ordered media from successive clear live HLS playlist windows.
+///
+/// Playlist retrieval remains with the caller so refresh credentials and polling policy stay at
+/// the request-context boundary. Repeated segments are ignored, rolled-out sequence ranges are
+/// reported, and cancellation is observed between network units.
+#[derive(Debug, Clone)]
+pub struct HlsLiveRecorder {
+    downloader: HlsVodDownloader,
+}
+
+impl HlsLiveRecorder {
+    /// Builds a recorder with the repository HTTP and retry defaults.
+    ///
+    /// # Errors
+    /// Returns an error if the HTTP client cannot be initialized.
+    pub fn new() -> Result<Self, HlsDownloadError> {
+        Ok(Self {
+            downloader: HlsVodDownloader::new()?,
+        })
+    }
+
+    /// Overrides fragment retry behavior, primarily for deterministic orchestration and tests.
+    #[must_use]
+    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
+        self.downloader = self.downloader.with_retry_policy(retry_policy);
+        self
+    }
+
+    /// Writes unseen segments from chronological playlist snapshots in playback order.
+    ///
+    /// A duration boundary is rounded up to a complete segment. An `EXT-X-ENDLIST`, cooperative
+    /// cancellation, or exhausted snapshot source also produces a successful report. Transfer and
+    /// filesystem failures preserve the partial recording for explicit recovery or cleanup.
+    ///
+    /// # Errors
+    /// Returns an error for a zero duration boundary, invalid segment duration, arithmetic
+    /// overflow, transfer failure, or output failure.
+    pub fn record<I>(
+        &self,
+        snapshots: I,
+        temporary_path: &Path,
+        stop_condition: HlsLiveStopCondition,
+        control: &HlsLiveControl,
+    ) -> Result<HlsLiveRecordingReport, HlsLiveRecordingError>
+    where
+        I: IntoIterator<Item = HlsMediaPlaylist>,
+    {
+        if matches!(stop_condition, HlsLiveStopCondition::Duration(value) if value.is_zero()) {
+            return Err(HlsLiveRecordingError::InvalidStopDuration);
+        }
+        if let Some(parent) = temporary_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        let mut recording = HlsLiveRecordingState::new(temporary_path)?;
+        let mut stop_reason = HlsLiveStopReason::SnapshotsExhausted;
+
+        'snapshots: for playlist in snapshots {
+            if control.is_cancelled() {
+                stop_reason = HlsLiveStopReason::Cancelled;
+                break;
+            }
+            for segment in &playlist.segments {
+                if control.is_cancelled() {
+                    stop_reason = HlsLiveStopReason::Cancelled;
+                    break 'snapshots;
+                }
+                if !recording.record_segment(&self.downloader, segment, control)? {
+                    stop_reason = HlsLiveStopReason::Cancelled;
+                    break 'snapshots;
+                }
+
+                if let HlsLiveStopCondition::Duration(limit) = stop_condition
+                    && recording.recorded_duration >= limit
+                {
+                    stop_reason = HlsLiveStopReason::DurationReached;
+                    break 'snapshots;
+                }
+            }
+            if playlist.has_end_list {
+                stop_reason = HlsLiveStopReason::EndList;
+                break;
+            }
+        }
+        recording.finish(stop_reason)
+    }
+}
+
+struct HlsLiveRecordingState {
+    output: File,
+    hasher: Sha256,
+    downloaded_bytes: u64,
+    media_segments: usize,
+    init_segments: usize,
+    recorded_duration: Duration,
+    gaps: Vec<HlsLiveGap>,
+    next_sequence: Option<u64>,
+    active_init: Option<HlsInitSegment>,
+    unit_index: usize,
+}
+
+impl HlsLiveRecordingState {
+    fn new(path: &Path) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            output: File::create(path)?,
+            hasher: Sha256::new(),
+            downloaded_bytes: 0,
+            media_segments: 0,
+            init_segments: 0,
+            recorded_duration: Duration::ZERO,
+            gaps: Vec::new(),
+            next_sequence: None,
+            active_init: None,
+            unit_index: 0,
+        })
+    }
+
+    /// Returns `false` when cancellation arrives after an initialization object.
+    fn record_segment(
+        &mut self,
+        downloader: &HlsVodDownloader,
+        segment: &HlsMediaSegment,
+        control: &HlsLiveControl,
+    ) -> Result<bool, HlsLiveRecordingError> {
+        let expected = self.next_sequence.unwrap_or(segment.sequence);
+        if segment.sequence < expected {
+            return Ok(true);
+        }
+        if segment.sequence > expected {
+            push_live_gap(&mut self.gaps, expected, segment.sequence - 1);
+        }
+        let segment_duration =
+            Duration::try_from_secs_f64(segment.duration_seconds).map_err(|_| {
+                HlsLiveRecordingError::InvalidSegmentDuration {
+                    sequence: segment.sequence,
+                }
+            })?;
+
+        if segment.init_segment != self.active_init {
+            if let Some(init) = &segment.init_segment {
+                self.record_unit(
+                    downloader,
+                    &HlsUnit {
+                        uri: init.uri.clone(),
+                        byte_range: init.byte_range,
+                        is_init: true,
+                    },
+                )?;
+                self.init_segments = self
+                    .init_segments
+                    .checked_add(1)
+                    .ok_or(HlsLiveRecordingError::Overflow)?;
+            }
+            self.active_init.clone_from(&segment.init_segment);
+        }
+        if control.is_cancelled() {
+            return Ok(false);
+        }
+
+        self.record_unit(
+            downloader,
+            &HlsUnit {
+                uri: segment.uri.clone(),
+                byte_range: segment.byte_range,
+                is_init: false,
+            },
+        )?;
+        self.media_segments = self
+            .media_segments
+            .checked_add(1)
+            .ok_or(HlsLiveRecordingError::Overflow)?;
+        self.recorded_duration = self
+            .recorded_duration
+            .checked_add(segment_duration)
+            .ok_or(HlsLiveRecordingError::Overflow)?;
+        self.next_sequence = Some(
+            segment
+                .sequence
+                .checked_add(1)
+                .ok_or(HlsLiveRecordingError::Overflow)?,
+        );
+        Ok(true)
+    }
+
+    fn record_unit(
+        &mut self,
+        downloader: &HlsVodDownloader,
+        unit: &HlsUnit,
+    ) -> Result<(), HlsLiveRecordingError> {
+        let response = downloader.fetch(self.unit_index, unit)?;
+        let bytes = copy_response(
+            self.unit_index,
+            response,
+            unit,
+            &mut self.output,
+            &mut self.hasher,
+        )?
+        .bytes;
+        self.downloaded_bytes = self
+            .downloaded_bytes
+            .checked_add(bytes)
+            .ok_or(HlsLiveRecordingError::Overflow)?;
+        self.unit_index = self
+            .unit_index
+            .checked_add(1)
+            .ok_or(HlsLiveRecordingError::Overflow)?;
+        Ok(())
+    }
+
+    fn finish(
+        self,
+        stop_reason: HlsLiveStopReason,
+    ) -> Result<HlsLiveRecordingReport, HlsLiveRecordingError> {
+        self.output.sync_all()?;
+        Ok(HlsLiveRecordingReport {
+            stop_reason,
+            downloaded_bytes: self.downloaded_bytes,
+            media_segments: self.media_segments,
+            init_segments: self.init_segments,
+            recorded_duration: self.recorded_duration,
+            gaps: self.gaps,
+            sha256: format!("{:x}", self.hasher.finalize()),
+        })
+    }
+}
+
+fn push_live_gap(gaps: &mut Vec<HlsLiveGap>, first_sequence: u64, last_sequence: u64) {
+    if let Some(previous) = gaps.last_mut()
+        && previous.last_sequence.checked_add(1) == Some(first_sequence)
+    {
+        previous.last_sequence = last_sequence;
+        return;
+    }
+    gaps.push(HlsLiveGap {
+        first_sequence,
+        last_sequence,
+    });
 }
 
 impl HlsVodDownloader {
@@ -548,7 +863,10 @@ mod tests {
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
-    use super::{HlsDownloadError, HlsRefreshRequest, HlsVodDownloader};
+    use super::{
+        HlsDownloadError, HlsLiveControl, HlsLiveGap, HlsLiveRecorder, HlsLiveStopCondition,
+        HlsLiveStopReason, HlsRefreshRequest, HlsVodDownloader,
+    };
     use crate::{
         domain::{DownloadKind, HttpUrl, JobId, JobMetadata, Priority, UnixMillis},
         media::parse_hls_media_playlist,
@@ -890,5 +1208,148 @@ mod tests {
                 "/two.m4s?token=new"
             ]
         );
+    }
+
+    #[test]
+    fn live_windows_deduplicate_rollover_and_report_dropped_sequences_at_end() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok("one"),
+            Fixture::ok("two"),
+            Fixture::ok("three"),
+            Fixture::ok("five"),
+        ]);
+        let snapshots = [
+            playlist(
+                &server,
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:10\n\
+                 #EXTINF:4,\none.ts\n#EXTINF:4,\ntwo.ts",
+            ),
+            playlist(
+                &server,
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:11\n\
+                 #EXTINF:4,\ntwo.ts\n#EXTINF:4,\nthree.ts",
+            ),
+            playlist(
+                &server,
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:14\n\
+                 #EXTINF:4,\nfive.ts\n#EXT-X-ENDLIST",
+            ),
+        ];
+        let directory = tempdir().expect("tempdir");
+        let output = directory.path().join("live.part");
+
+        let report = HlsLiveRecorder::new()
+            .expect("recorder")
+            .record(
+                snapshots,
+                &output,
+                HlsLiveStopCondition::EndList,
+                &HlsLiveControl::default(),
+            )
+            .expect("live recording");
+
+        let expected = b"onetwothreefive";
+        assert_eq!(fs::read(&output).expect("output"), expected);
+        assert_eq!(report.stop_reason, HlsLiveStopReason::EndList);
+        assert_eq!(report.media_segments, 4);
+        assert_eq!(report.recorded_duration, Duration::from_secs(16));
+        assert_eq!(
+            report.gaps,
+            [HlsLiveGap {
+                first_sequence: 13,
+                last_sequence: 13
+            }]
+        );
+        assert_eq!(report.sha256, format!("{:x}", Sha256::digest(expected)));
+        assert_eq!(
+            server
+                .requests()
+                .iter()
+                .map(|request| request.target.as_str())
+                .collect::<Vec<_>>(),
+            ["/one.ts", "/two.ts", "/three.ts", "/five.ts"]
+        );
+    }
+
+    #[test]
+    fn live_duration_stops_at_a_complete_segment_boundary() {
+        let server = FixtureServer::start(vec![Fixture::ok("one"), Fixture::ok("two")]);
+        let snapshot = playlist(
+            &server,
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:20\n\
+             #EXTINF:4,\none.ts\n#EXTINF:4,\ntwo.ts\n#EXTINF:4,\nnever.ts",
+        );
+        let directory = tempdir().expect("tempdir");
+        let output = directory.path().join("duration.part");
+
+        let report = HlsLiveRecorder::new()
+            .expect("recorder")
+            .record(
+                [snapshot],
+                &output,
+                HlsLiveStopCondition::Duration(Duration::from_secs(7)),
+                &HlsLiveControl::default(),
+            )
+            .expect("duration recording");
+
+        assert_eq!(report.stop_reason, HlsLiveStopReason::DurationReached);
+        assert_eq!(report.media_segments, 2);
+        assert_eq!(report.recorded_duration, Duration::from_secs(8));
+        assert_eq!(fs::read(output).expect("output"), b"onetwo");
+        assert_eq!(server.requests().len(), 2);
+    }
+
+    #[test]
+    fn live_cancellation_stops_before_the_next_window_request() {
+        struct CancellingSnapshots {
+            control: HlsLiveControl,
+            snapshots: std::vec::IntoIter<crate::media::HlsMediaPlaylist>,
+            yielded: usize,
+        }
+
+        impl Iterator for CancellingSnapshots {
+            type Item = crate::media::HlsMediaPlaylist;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.yielded == 1 {
+                    self.control.cancel();
+                }
+                self.yielded += 1;
+                self.snapshots.next()
+            }
+        }
+
+        let server = FixtureServer::start(vec![Fixture::ok("one")]);
+        let snapshots = vec![
+            playlist(
+                &server,
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:30\n\
+                 #EXTINF:4,\none.ts",
+            ),
+            playlist(
+                &server,
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:31\n\
+                 #EXTINF:4,\ntwo.ts",
+            ),
+        ];
+        let control = HlsLiveControl::default();
+        let source = CancellingSnapshots {
+            control: control.clone(),
+            snapshots: snapshots.into_iter(),
+            yielded: 0,
+        };
+        let directory = tempdir().expect("tempdir");
+        let output = directory.path().join("cancelled.part");
+
+        let report = HlsLiveRecorder::new()
+            .expect("recorder")
+            .record(source, &output, HlsLiveStopCondition::EndList, &control)
+            .expect("cancelled recording report");
+
+        assert_eq!(report.stop_reason, HlsLiveStopReason::Cancelled);
+        assert_eq!(report.media_segments, 1);
+        assert_eq!(report.recorded_duration, Duration::from_secs(4));
+        assert_eq!(fs::read(output).expect("output"), b"one");
+        assert_eq!(server.requests().len(), 1);
     }
 }
