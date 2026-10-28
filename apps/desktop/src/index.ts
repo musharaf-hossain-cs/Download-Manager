@@ -25,6 +25,7 @@ export * from "./history.js";
 export * from "./localization.js";
 export * from "./notifications.js";
 export * from "./progress.js";
+export * from "./queues.js";
 export * from "./segment-detail.js";
 export * from "./settings.js";
 export * from "./tray.js";

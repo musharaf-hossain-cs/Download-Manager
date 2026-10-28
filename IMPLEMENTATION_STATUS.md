@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S123)
+- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S124)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -132,7 +132,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S120 | DONE | Engine HLS parser and DASH selection tests verify fail-closed Widevine, PlayReady, FairPlay, common-encryption, generic-key, and unknown protection classification without exposing key, KID, PSSH, or license material; protected fixtures cannot reach track selection or download; all fast verification gates pass. |
 | S121 | DONE | Engine `hls::tests` verify clear live rolling-window deduplication, rollover gap reporting, complete-segment duration stops, cooperative cancellation before the next request, end-list completion, exact bytes/duration/SHA-256 accounting, and partial preservation on transfer failure; all fast verification gates pass. |
 | S122 | DONE | Engine schema v4 persists validated named queues with atomic, exact-permutation ordering; `storage::tests::named_queue_order_is_atomic_and_stable_across_restart` verifies creation order, reorder rollback, timestamps, positions, and restart stability; engine format/clippy pass, with 135 tests passed and one recovery helper ignored. |
-| S123 | TODO | — |
+| S123 | DONE | Desktop `queues.test.ts` verifies ordered cross-queue move/copy, exact-permutation reorder, mixed-state manual start/stop eligibility, deduplicated missing-job reporting, authoritative snapshots, and rejected-mutation rollback; full desktop tests, typecheck, and documentation gates pass. |
 | S124 | TODO | — |
 | S125 | TODO | — |
 | S126 | TODO | — |
