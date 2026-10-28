@@ -25,6 +25,7 @@ pub mod media_selection;
 pub mod media_worker;
 pub mod network;
 pub mod network_metrics;
+pub mod power_action;
 pub mod probe;
 pub mod proxy;
 pub mod queue_schedule;
@@ -33,12 +34,14 @@ pub mod recovery;
 pub mod request_context;
 pub mod resume;
 pub mod retry;
+pub mod scheduled_wake;
 pub mod scheduler;
 pub mod segmented;
 pub mod state;
 pub mod storage;
 pub mod subtitle;
 pub mod transfer;
+pub mod transfer_quota;
 
 #[cfg(test)]
 pub(crate) mod test_support;
