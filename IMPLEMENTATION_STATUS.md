@@ -134,7 +134,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S122 | DONE | Engine schema v4 persists validated named queues with atomic, exact-permutation ordering; `storage::tests::named_queue_order_is_atomic_and_stable_across_restart` verifies creation order, reorder rollback, timestamps, positions, and restart stability; engine format/clippy pass, with 135 tests passed and one recovery helper ignored. |
 | S123 | DONE | Desktop `queues.test.ts` verifies ordered cross-queue move/copy, exact-permutation reorder, mixed-state manual start/stop eligibility, deduplicated missing-job reporting, authoritative snapshots, and rejected-mutation rollback; full desktop tests, typecheck, and documentation gates pass. |
 | S124 | TODO | — |
-| S125 | TODO | — |
+| S125 | DONE | Engine `queue_schedule::tests` use a fake-clock next-run table to verify one-time and normalized weekly recurrence across UTC, Dhaka, New York, and Berlin IANA zones; invalid zones/empty weekdays are rejected and DST gaps/folds remain explicit policy errors for S126; focused engine tests and clippy pass. |
 | S126 | TODO | — |
 | S127 | TODO | — |
 | S128 | TODO | — |
