@@ -34,6 +34,10 @@ const MIGRATIONS: &[Migration] = &[
         version: 3,
         sql: include_str!("../migrations/003_request_contexts.sql"),
     },
+    Migration {
+        version: 4,
+        sql: include_str!("../migrations/004_named_queues.sql"),
+    },
 ];
 
 #[derive(Debug, Error)]
@@ -54,6 +58,10 @@ pub enum StorageError {
     RequestContext(#[from] RequestContextError),
     #[error("expired request-context secret cleanup failed: {0}")]
     SecretCleanup(String),
+    #[error("queue name must contain 1 to 256 characters")]
+    InvalidQueueName,
+    #[error("queue order must contain every queue exactly once")]
+    InvalidQueueOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +88,15 @@ pub struct AuditEvent {
 pub struct RetentionResult {
     pub jobs_deleted: usize,
     pub events_deleted: usize,
+}
+
+/// One durable named queue in its user-defined display order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueueRecord {
+    pub name: String,
+    pub position: u32,
+    pub created_at: UnixMillis,
 }
 
 /// Configured connection to the durable engine database.
@@ -280,6 +297,79 @@ impl Database {
                 })
             })
             .collect()
+    }
+
+    /// Creates a named queue at the end of the stable queue order.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for invalid/duplicate names or persistence failures.
+    pub fn create_queue(&mut self, name: &str, created_at: UnixMillis) -> Result<(), StorageError> {
+        validate_queue_name(name)?;
+        self.connection.execute(
+            "INSERT INTO download_queues (name, position, created_at_ms) \
+             VALUES (?1, (SELECT COUNT(*) FROM download_queues), ?2)",
+            params![name, created_at.get()],
+        )?;
+        Ok(())
+    }
+
+    /// Loads named queues in their durable user-defined order.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] when stored queue data is invalid or unreadable.
+    pub fn list_queues(&self) -> Result<Vec<QueueRecord>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT name, position, created_at_ms FROM download_queues ORDER BY position, name",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok(QueueRecord {
+                    name: row.get(0)?,
+                    position: row.get(1)?,
+                    created_at: parse_timestamp(row.get(2)?)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
+    /// Atomically replaces the complete named-queue order.
+    ///
+    /// # Errors
+    /// Returns [`StorageError::InvalidQueueOrder`] unless `names` is an exact permutation of all
+    /// existing queues, or a persistence error when SQLite cannot commit the reorder.
+    pub fn reorder_queues(&mut self, names: &[String]) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        let existing = {
+            let mut statement = transaction.prepare("SELECT name FROM download_queues")?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let mut requested = names.to_vec();
+        requested.sort_unstable();
+        let mut expected = existing;
+        expected.sort_unstable();
+        if requested != expected || requested.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(StorageError::InvalidQueueOrder);
+        }
+
+        let offset =
+            i64::try_from(names.len()).map_err(|_| StorageError::IntegerOverflow(u64::MAX))?;
+        transaction.execute(
+            "UPDATE download_queues SET position = position + ?1",
+            [offset],
+        )?;
+        for (position, name) in names.iter().enumerate() {
+            let position =
+                i64::try_from(position).map_err(|_| StorageError::IntegerOverflow(u64::MAX))?;
+            transaction.execute(
+                "UPDATE download_queues SET position=?2 WHERE name=?1",
+                params![name, position],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     /// Deletes a job record and all child rows without touching downloaded files.
@@ -867,6 +957,14 @@ fn optional_text(value: Option<String>) -> rusqlite::types::Value {
     value.map_or(rusqlite::types::Value::Null, rusqlite::types::Value::Text)
 }
 
+fn validate_queue_name(name: &str) -> Result<(), StorageError> {
+    let length = name.chars().count();
+    if name.trim() != name || !(1..=256).contains(&length) {
+        return Err(StorageError::InvalidQueueName);
+    }
+    Ok(())
+}
+
 fn optional_integer(value: Option<i64>) -> rusqlite::types::Value {
     value.map_or(
         rusqlite::types::Value::Null,
@@ -1189,11 +1287,79 @@ mod tests {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("state.sqlite");
         let database = Database::open(&path).expect("create database");
-        assert_eq!(database.schema_version().expect("version"), 3);
+        assert_eq!(database.schema_version().expect("version"), 4);
         drop(database);
         let reopened = Database::open(&path).expect("reopen database");
-        assert_eq!(reopened.schema_version().expect("version"), 3);
+        assert_eq!(reopened.schema_version().expect("version"), 4);
         assert!(reopened.migration_backup().is_none());
+    }
+
+    #[test]
+    fn named_queue_order_is_atomic_and_stable_across_restart() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("queues.sqlite");
+        let mut database = Database::open(&path).expect("database");
+        database
+            .create_queue("Work", timestamp(10))
+            .expect("work queue");
+        database
+            .create_queue("Night", timestamp(20))
+            .expect("night queue");
+        database
+            .create_queue("Media", timestamp(30))
+            .expect("media queue");
+        assert_eq!(
+            database
+                .list_queues()
+                .expect("initial queues")
+                .iter()
+                .map(|queue| (queue.name.as_str(), queue.position))
+                .collect::<Vec<_>>(),
+            vec![("Work", 0), ("Night", 1), ("Media", 2)]
+        );
+
+        database
+            .reorder_queues(&["Media".to_owned(), "Work".to_owned(), "Night".to_owned()])
+            .expect("reorder queues");
+        assert!(matches!(
+            database
+                .reorder_queues(&["Media".to_owned(), "Work".to_owned()])
+                .expect_err("incomplete order"),
+            StorageError::InvalidQueueOrder
+        ));
+        drop(database);
+
+        let reopened = Database::open(&path).expect("reopen database");
+        let queues = reopened.list_queues().expect("restarted queues");
+        assert_eq!(
+            queues
+                .iter()
+                .map(|queue| (queue.name.as_str(), queue.position))
+                .collect::<Vec<_>>(),
+            vec![("Media", 0), ("Work", 1), ("Night", 2)]
+        );
+        assert_eq!(
+            queues
+                .iter()
+                .map(|queue| queue.created_at.get())
+                .collect::<Vec<_>>(),
+            vec![30, 10, 20]
+        );
+    }
+
+    #[test]
+    fn named_queue_schema_rejects_invalid_or_duplicate_names() {
+        let mut database = Database::open_in_memory().expect("database");
+        assert!(matches!(
+            database
+                .create_queue(" leading", timestamp(1))
+                .expect_err("leading space"),
+            StorageError::InvalidQueueName
+        ));
+        database
+            .create_queue("Night", timestamp(1))
+            .expect("night queue");
+        assert!(database.create_queue("Night", timestamp(2)).is_err());
     }
 
     #[test]

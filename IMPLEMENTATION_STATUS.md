@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-28
-- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S122)
+- Current milestone: Milestone 8 — Queues, scheduler and system policy (next slice: S123)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -131,7 +131,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S119 | DONE | Engine request-context and storage tests verify sanitized media job URLs, opaque vault references, SQLite/WAL/log/export secret scans, schema-v3 persistence, pre-expiry retention, retry-safe vault cleanup, and expired-row removal; all fast verification gates pass. |
 | S120 | DONE | Engine HLS parser and DASH selection tests verify fail-closed Widevine, PlayReady, FairPlay, common-encryption, generic-key, and unknown protection classification without exposing key, KID, PSSH, or license material; protected fixtures cannot reach track selection or download; all fast verification gates pass. |
 | S121 | DONE | Engine `hls::tests` verify clear live rolling-window deduplication, rollover gap reporting, complete-segment duration stops, cooperative cancellation before the next request, end-list completion, exact bytes/duration/SHA-256 accounting, and partial preservation on transfer failure; all fast verification gates pass. |
-| S122 | TODO | — |
+| S122 | DONE | Engine schema v4 persists validated named queues with atomic, exact-permutation ordering; `storage::tests::named_queue_order_is_atomic_and_stable_across_restart` verifies creation order, reorder rollback, timestamps, positions, and restart stability; engine format/clippy pass, with 135 tests passed and one recovery helper ignored. |
 | S123 | TODO | — |
 | S124 | TODO | — |
 | S125 | TODO | — |
