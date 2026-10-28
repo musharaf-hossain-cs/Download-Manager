@@ -1,9 +1,11 @@
 //! Unified, manifest-backed media variant menu and exact track selection.
 
 use crate::{
-    dash::{DashAdaptation, DashManifest, DashRepresentation, DashSegmentPlan},
+    dash::{
+        DashAdaptation, DashContentProtection, DashManifest, DashRepresentation, DashSegmentPlan,
+    },
     domain::HttpUrl,
-    media::{HlsMasterPlaylist, HlsRendition},
+    media::{HlsMasterPlaylist, HlsRendition, ProtectedMediaKind},
 };
 use thiserror::Error;
 
@@ -95,6 +97,8 @@ pub enum MediaSelectionError {
     UnknownOption { kind: MediaTrackKind, id: String },
     #[error("selected tracks do not belong to the same manifest variant scope")]
     IncompatibleTracks,
+    #[error("protected/unsupported media ({0:?})")]
+    ProtectedMedia(ProtectedMediaKind),
 }
 
 impl MediaVariantMenu {
@@ -164,8 +168,12 @@ impl MediaVariantMenu {
     /// Builds a DASH menu in period/adaptation/representation order.
     ///
     /// # Errors
-    /// Returns an error when the combined menu would exceed [`MAX_MEDIA_VARIANT_OPTIONS`].
+    /// Returns an error when the manifest declares protected media or the combined menu would
+    /// exceed [`MAX_MEDIA_VARIANT_OPTIONS`].
     pub fn from_dash(manifest: &DashManifest) -> Result<Self, MediaSelectionError> {
+        if let Some(kind) = classify_dash_protection(manifest) {
+            return Err(MediaSelectionError::ProtectedMedia(kind));
+        }
         let mut menu = Self::default();
         let mut option_count = 0_usize;
         for (period_index, period) in manifest.periods.iter().enumerate() {
@@ -227,6 +235,52 @@ impl MediaVariantMenu {
             audio: audio.map(|option| option.track.clone()),
             subtitle: subtitle.map(|option| option.track.clone()),
         })
+    }
+}
+
+fn classify_dash_protection(manifest: &DashManifest) -> Option<ProtectedMediaKind> {
+    let protections = manifest.periods.iter().flat_map(|period| {
+        period.adaptations.iter().flat_map(|adaptation| {
+            adaptation.content_protections.iter().chain(
+                adaptation
+                    .representations
+                    .iter()
+                    .flat_map(|representation| representation.content_protections.iter()),
+            )
+        })
+    });
+    protections
+        .map(classify_dash_marker)
+        .max_by_key(|kind| match kind {
+            ProtectedMediaKind::Widevine
+            | ProtectedMediaKind::PlayReady
+            | ProtectedMediaKind::FairPlay => 3,
+            ProtectedMediaKind::CommonEncryption => 2,
+            ProtectedMediaKind::Unknown | ProtectedMediaKind::HlsEncryption => 1,
+        })
+}
+
+fn classify_dash_marker(protection: &DashContentProtection) -> ProtectedMediaKind {
+    let scheme = protection
+        .scheme_id_uri
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if scheme.contains("edef8ba9") || scheme.contains("widevine") {
+        ProtectedMediaKind::Widevine
+    } else if scheme.contains("9a04f079") || scheme.contains("playready") {
+        ProtectedMediaKind::PlayReady
+    } else if scheme.contains("94ce86fb") || scheme.contains("fairplay") {
+        ProtectedMediaKind::FairPlay
+    } else if scheme == "urn:mpeg:dash:mp4protection:2011"
+        || protection
+            .value
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("cenc"))
+    {
+        ProtectedMediaKind::CommonEncryption
+    } else {
+        ProtectedMediaKind::Unknown
     }
 }
 
@@ -497,8 +551,10 @@ fn dash_range_length(range: crate::dash::DashByteRange) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::{
-        dash::{DashByteRange, DashMediaSegment, DashPeriod, DashSegmentResource},
-        media::{HlsRendition, HlsVariant},
+        dash::{
+            DashByteRange, DashMediaSegment, DashPeriod, DashSegmentResource, parse_static_mpd,
+        },
+        media::{HlsRendition, HlsVariant, ProtectedMediaKind},
     };
     use url::Url;
 
@@ -774,6 +830,45 @@ mod tests {
                 id: "v".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn protected_dash_fixtures_are_classified_and_blocked_before_track_selection() {
+        let fixtures = [
+            (
+                r#"<MPD type="static"><Period><AdaptationSet contentType="video">
+                  <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" />
+                  <ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"><cenc:pssh>secret-pssh</cenc:pssh></ContentProtection>
+                  <Representation id="v"><BaseURL>video.mp4</BaseURL></Representation>
+                </AdaptationSet></Period></MPD>"#,
+                ProtectedMediaKind::Widevine,
+            ),
+            (
+                r#"<MPD type="static"><Period><AdaptationSet contentType="audio">
+                  <Representation id="a"><ContentProtection schemeIdUri="urn:uuid:9a04f079-9840-4286-ab92-e65be0885f95" cenc:default_KID="secret-kid"/><BaseURL>audio.mp4</BaseURL></Representation>
+                </AdaptationSet></Period></MPD>"#,
+                ProtectedMediaKind::PlayReady,
+            ),
+            (
+                r#"<MPD type="static"><Period><AdaptationSet contentType="video">
+                  <ContentProtection schemeIdUri="urn:example:eme:vendor" />
+                  <Representation id="v"><BaseURL>video.mp4</BaseURL></Representation>
+                </AdaptationSet></Period></MPD>"#,
+                ProtectedMediaKind::Unknown,
+            ),
+        ];
+        for (document, expected) in fixtures {
+            let manifest = parse_static_mpd(
+                document,
+                &Url::parse("https://media.test/manifest.mpd").unwrap(),
+            )
+            .expect("data-only parser retains protection markers");
+            let error = MediaVariantMenu::from_dash(&manifest).expect_err("must hard block");
+            assert_eq!(error, MediaSelectionError::ProtectedMedia(expected));
+            let diagnostic = format!("{error:?} {error}");
+            assert!(!diagnostic.contains("secret-pssh"));
+            assert!(!diagnostic.contains("secret-kid"));
+        }
     }
 
     #[test]

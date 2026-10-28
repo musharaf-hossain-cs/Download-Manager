@@ -71,6 +71,20 @@ pub struct HlsInitSegment {
     pub byte_range: Option<HlsByteRange>,
 }
 
+/// Coarse, non-secret classification for media that this engine must not download.
+///
+/// The classifier never exposes key URIs, key IDs, PSSH payloads, or license responses. Its only
+/// purpose is to produce a stable user-facing refusal before any track download or worker step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtectedMediaKind {
+    HlsEncryption,
+    CommonEncryption,
+    Widevine,
+    PlayReady,
+    FairPlay,
+    Unknown,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum HlsMediaError {
     #[error("playlist must begin with #EXTM3U")]
@@ -94,6 +108,8 @@ pub enum HlsMediaError {
     MissingByteRangeOffset,
     #[error("playlist sequence or byte range overflows")]
     Overflow,
+    #[error("protected/unsupported media ({0:?})")]
+    ProtectedMedia(ProtectedMediaKind),
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -113,6 +129,8 @@ pub enum HlsMasterError {
     InvalidAttribute { attribute: &'static str },
     #[error("invalid or unsupported media URI")]
     InvalidUri,
+    #[error("protected/unsupported media ({0:?})")]
+    ProtectedMedia(ProtectedMediaKind),
 }
 
 /// Parses an HLS master playlist and resolves every media URI against its URL.
@@ -120,7 +138,7 @@ pub enum HlsMasterError {
 /// Media-playlist segments are intentionally outside this contract.
 ///
 /// # Errors
-/// Returns an error for a non-master playlist or malformed required metadata/URI.
+/// Returns an error for protected media, a non-master playlist, or malformed required metadata/URI.
 pub fn parse_hls_master_playlist(
     manifest: &str,
     manifest_url: &HttpUrl,
@@ -136,6 +154,9 @@ pub fn parse_hls_master_playlist(
 
     let base = Url::parse(manifest_url.as_str()).map_err(|_| HlsMasterError::InvalidUri)?;
     let remaining: Vec<_> = lines.collect();
+    if let Some(kind) = classify_hls_protection(&remaining) {
+        return Err(HlsMasterError::ProtectedMedia(kind));
+    }
     let mut playlist = HlsMasterPlaylist {
         variants: Vec::new(),
         audio_renditions: Vec::new(),
@@ -186,8 +207,8 @@ pub fn parse_hls_master_playlist(
 /// contracts.
 ///
 /// # Errors
-/// Returns an error for a master playlist, missing/malformed segment metadata, invalid byte-range
-/// chaining, arithmetic overflow, or non-HTTP(S) URIs.
+/// Returns an error for protected media, a master playlist, missing/malformed segment metadata,
+/// invalid byte-range chaining, arithmetic overflow, or non-HTTP(S) URIs.
 pub fn parse_hls_media_playlist(
     manifest: &str,
     manifest_url: &HttpUrl,
@@ -202,11 +223,56 @@ pub fn parse_hls_media_playlist(
     }
 
     let base = Url::parse(manifest_url.as_str()).map_err(|_| HlsMediaError::InvalidUri)?;
+    let remaining = lines.collect::<Vec<_>>();
+    if let Some(kind) = classify_hls_protection(&remaining) {
+        return Err(HlsMediaError::ProtectedMedia(kind));
+    }
     let mut state = MediaParseState::default();
-    for line in lines {
+    for line in remaining {
         state.parse_line(&base, line)?;
     }
     state.finish()
+}
+
+fn classify_hls_protection(lines: &[&str]) -> Option<ProtectedMediaKind> {
+    lines.iter().find_map(|line| {
+        let (is_session_key, attributes) = line
+            .strip_prefix("#EXT-X-SESSION-KEY:")
+            .map(|attributes| (true, attributes))
+            .or_else(|| {
+                line.strip_prefix("#EXT-X-KEY:")
+                    .map(|attributes| (false, attributes))
+            })?;
+        let parsed = parse_attribute_entries(attributes);
+        if !is_session_key
+            && parsed
+                .as_ref()
+                .and_then(|values| values.get("METHOD"))
+                .is_some_and(|method| method.eq_ignore_ascii_case("NONE"))
+        {
+            return None;
+        }
+        Some(classify_hls_key_format(parsed.as_ref()))
+    })
+}
+
+fn classify_hls_key_format(attributes: Option<&BTreeMap<String, String>>) -> ProtectedMediaKind {
+    let key_format = attributes
+        .and_then(|values| values.get("KEYFORMAT"))
+        .map(|value| value.to_ascii_lowercase());
+    match key_format.as_deref() {
+        Some(value) if value.contains("edef8ba9") || value.contains("widevine") => {
+            ProtectedMediaKind::Widevine
+        }
+        Some(value) if value.contains("9a04f079") || value.contains("playready") => {
+            ProtectedMediaKind::PlayReady
+        }
+        Some(value) if value.contains("94ce86fb") || value.contains("streamingkeydelivery") => {
+            ProtectedMediaKind::FairPlay
+        }
+        Some("identity") | None => ProtectedMediaKind::HlsEncryption,
+        Some(_) => ProtectedMediaKind::Unknown,
+    }
 }
 
 #[derive(Default)]
@@ -575,7 +641,7 @@ fn parse_positive_f64(value: &str, attribute: &'static str) -> Result<f64, HlsMa
 #[cfg(test)]
 mod tests {
     use super::{
-        HlsByteRange, HlsMasterError, HlsMediaError, parse_hls_master_playlist,
+        HlsByteRange, HlsMasterError, HlsMediaError, ProtectedMediaKind, parse_hls_master_playlist,
         parse_hls_media_playlist,
     };
     use crate::domain::HttpUrl;
@@ -686,6 +752,55 @@ mod tests {
             ),
             Err(HlsMasterError::MalformedTag("EXT-X-STREAM-INF"))
         );
+    }
+
+    #[test]
+    fn protected_hls_fixtures_are_classified_without_exposing_key_material() {
+        let base = url("https://example.test/master.m3u8");
+        let master_cases = [
+            (
+                "#EXTM3U\n#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,KEYFORMAT=\"com.apple.streamingkeydelivery\",URI=\"skd://license-secret\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nvideo.m3u8",
+                ProtectedMediaKind::FairPlay,
+            ),
+            (
+                "#EXTM3U\n#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,KEYFORMAT=\"urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed\",URI=\"data:text/plain,pssh-secret\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nvideo.m3u8",
+                ProtectedMediaKind::Widevine,
+            ),
+        ];
+        for (manifest, expected) in master_cases {
+            let error = parse_hls_master_playlist(manifest, &base).expect_err("must hard block");
+            assert_eq!(error, HlsMasterError::ProtectedMedia(expected));
+            let diagnostic = format!("{error:?} {error}");
+            assert!(!diagnostic.contains("license-secret"));
+            assert!(!diagnostic.contains("pssh-secret"));
+        }
+
+        let media_cases = [
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI=\"https://keys.test/key?token=secret\"\n#EXTINF:4,\nsegment.ts\n#EXT-X-ENDLIST",
+                ProtectedMediaKind::HlsEncryption,
+            ),
+            (
+                "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=SAMPLE-AES,KEYFORMAT=\"com.microsoft.playready\",URI=\"https://license.test/secret\"\n#EXTINF:4,\nsegment.ts\n#EXT-X-ENDLIST",
+                ProtectedMediaKind::PlayReady,
+            ),
+        ];
+        for (manifest, expected) in media_cases {
+            assert_eq!(
+                parse_hls_media_playlist(manifest, &base),
+                Err(HlsMediaError::ProtectedMedia(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_hls_method_none_remains_clear() {
+        let parsed = parse_hls_media_playlist(
+            "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nsegment.ts\n#EXT-X-ENDLIST",
+            &url("https://example.test/vod/index.m3u8"),
+        )
+        .expect("unencrypted playlist");
+        assert_eq!(parsed.segments.len(), 1);
     }
 
     #[test]
