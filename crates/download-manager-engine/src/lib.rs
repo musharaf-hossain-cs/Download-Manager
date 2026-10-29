@@ -50,6 +50,7 @@ pub mod scheduler;
 pub mod segmented;
 pub mod state;
 pub mod storage;
+pub mod structured_log;
 pub mod subtitle;
 pub mod system_policy;
 pub mod transfer;
