@@ -59,7 +59,7 @@ pub enum AntivirusScanError {
     UnsupportedPlatform,
     #[error("Microsoft Defender's registered command-line scanner is unavailable")]
     ScannerUnavailable,
-    #[error("failed to launch the registered antivirus scanner")]
+    #[error("registered antivirus scanner execution failed")]
     Launch(#[source] io::Error),
 }
 

@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 9 — Grabber, CLI and post-processing (next slice: S146)
+- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S147)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -155,7 +155,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S143 | DONE | CLI `pause_resume_and_cancel_have_stable_state_contracts` and `control_rejections_preserve_engine_error_contract_and_exit_code` verify typed engine actions, acknowledged states, versioned JSON, and stable invalid-state exit 4; focused CLI tests and strict clippy pass. |
 | S144 | DONE | CLI `queue_start_and_quiet_modes_have_stable_contracts`, `wait_completes_after_injected_polls_and_emits_final_state`, and `wait_timeout_and_cancellation_have_stable_exits` verify queue selection/start, quiet output, deterministic polling, and stable timeout 124/cancel 130 exits; focused CLI tests and strict clippy pass. |
 | S145 | DONE | Engine `antivirus::tests` verify canonical regular-file validation, job-bound clean/attention records, invalid scanner/target refusal, and a mock registered-scanner workflow; the explicitly invoked Windows smoke test discovers Microsoft Defender and scans a harmless local file cleanly; focused tests and strict clippy pass. |
-| S146 | TODO | — |
+| S146 | DONE | Engine `post_processing::tests` verify exact canonical executable allowlisting, structural literal/file arguments, pre-spawn path refusal, cleared profile/proxy/path environment, discarded child output, exact nonzero exit capture, timeout kill/reap, preserved targets, and fail-closed reuse of S145 scanner records; focused tests, strict clippy, and all fast verification gates pass. |
 | S147 | TODO | — |
 | S148 | TODO | — |
 | S149 | TODO | — |

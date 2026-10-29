@@ -34,6 +34,7 @@ pub mod media_selection;
 pub mod media_worker;
 pub mod network;
 pub mod network_metrics;
+pub mod post_processing;
 pub mod power_action;
 pub mod probe;
 pub mod proxy;
