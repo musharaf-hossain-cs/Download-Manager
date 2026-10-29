@@ -11,6 +11,7 @@ pub mod credentials;
 pub mod dash;
 pub mod dash_download;
 pub mod desktop;
+pub mod diagnostics;
 pub mod disk;
 pub mod domain;
 pub mod fairness;

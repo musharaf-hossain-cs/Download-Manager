@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S149)
+- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S150)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -158,7 +158,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S146 | DONE | Engine `post_processing::tests` verify exact canonical executable allowlisting, structural literal/file arguments, pre-spawn path refusal, cleared profile/proxy/path environment, discarded child output, exact nonzero exit capture, timeout kill/reap, preserved targets, and fail-closed reuse of S145 scanner records; focused tests, strict clippy, and all fast verification gates pass. |
 | S147 | DONE | Engine `structured_log::tests` verify request-ID correlation, complete concurrent JSON-lines records, exact oversize refusal without mutation, per-file size bounds, deterministic rotation, and configured generation retention; focused tests and all fast verification gates pass. |
 | S148 | DONE | Engine `redaction::tests` cover case-insensitive auth/proxy-auth, cookies, raw/JSON tokens, passwords, API keys, URL/proxy userinfo, and generic/AWS/GCS/Azure/CloudFront signed URLs with boundary-safe idempotence; structured JSON-lines plus SQLite audit/transition ingress tests prove sanitization before disk, and all fast verification gates pass. |
-| S149 | TODO | — |
+| S149 | DONE | Engine `diagnostics::tests` prove semantically equivalent health inputs produce identical bundles, the complete sanitized preview matches the exact no-overwrite export, app/browser versions plus settings schema/crash IDs/connectivity/logs are present, invalid or oversized input fails closed, and the auth/cookie/token/proxy/signed-URL corpus is absent before preview and disk; focused tests and all fast verification gates pass. |
 | S150 | TODO | — |
 | S151 | TODO | — |
 | S152 | TODO | — |
