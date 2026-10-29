@@ -191,6 +191,58 @@ try {
     Test-NativeConnection $hostPath @($origin) $chromiumExtensionId 'Edge'
     Test-NativeConnection $hostPath @($firefoxManifestPath, $firefoxExtensionId) `
         $firefoxExtensionId 'Firefox'
+
+    # Seed a mixture of missing and corrupt state, then exercise the installed
+    # repair entry point rather than rerunning the package installer.
+    [IO.File]::WriteAllText($chromiumManifestPath, '{"name":"wrong.owner"}')
+    Remove-Item -LiteralPath $firefoxManifestPath -Force
+    $chromeMarker = Join-Path $registrationRoot `
+        'Google\Chrome\NativeMessagingHosts\io.github.musharaf_hossain_cs.download_manager\.default-value'
+    [IO.File]::WriteAllText($chromeMarker, 'C:\stale\native-host.json')
+    $edgeKey = Join-Path $registrationRoot `
+        'Microsoft\Edge\NativeMessagingHosts\io.github.musharaf_hossain_cs.download_manager'
+    $firefoxKey = Join-Path $registrationRoot `
+        'Mozilla\NativeMessagingHosts\io.github.musharaf_hossain_cs.download_manager'
+    Remove-Item -LiteralPath $edgeKey -Recurse -Force
+    Remove-Item -LiteralPath $firefoxKey -Recurse -Force
+    [IO.File]::WriteAllText(
+        (Join-Path $installRoot 'browser-onboarding.json'),
+        '{"schema_version":0}'
+    )
+
+    & (Join-Path $installRoot 'native-host-registration.ps1') -Action Repair `
+        -HostPath $hostPath -OnboardingPath (Join-Path $installRoot 'browser-onboarding.json') `
+        -RegistrationRoot $registrationRoot
+
+    $repairedChromium = Get-Content -LiteralPath $chromiumManifestPath -Raw | ConvertFrom-Json
+    $repairedFirefox = Get-Content -LiteralPath $firefoxManifestPath -Raw | ConvertFrom-Json
+    if ($repairedChromium.name -ne 'io.github.musharaf_hossain_cs.download_manager' -or
+        $repairedChromium.path -ne $hostPath -or
+        @($repairedChromium.allowed_origins).Count -ne 1 -or
+        $repairedChromium.allowed_origins[0] -ne "chrome-extension://$chromiumExtensionId/" -or
+        $repairedFirefox.name -ne 'io.github.musharaf_hossain_cs.download_manager' -or
+        $repairedFirefox.path -ne $hostPath -or
+        @($repairedFirefox.allowed_extensions).Count -ne 1 -or
+        $repairedFirefox.allowed_extensions[0] -ne $firefoxExtensionId) {
+        throw 'Repair did not restore exact packaged native-host manifests.'
+    }
+    foreach ($entry in $registrationExpectations.GetEnumerator()) {
+        $marker = Join-Path $registrationRoot `
+            "$($entry.Key)\io.github.musharaf_hossain_cs.download_manager\.default-value"
+        if ((Get-Content -LiteralPath $marker -Raw) -ne $entry.Value) {
+            throw "Repair did not restore the packaged browser registration: $($entry.Key)"
+        }
+    }
+    $repairedOnboarding = Get-Content -LiteralPath `
+        (Join-Path $installRoot 'browser-onboarding.json') -Raw | ConvertFrom-Json
+    if ($repairedOnboarding.schema_version -ne 1 -or
+        (@($repairedOnboarding.browsers.browser) -join ',') -ne 'chrome,edge,firefox') {
+        throw 'Repair did not restore three-browser onboarding state.'
+    }
+    Test-NativeConnection $hostPath @($origin) $chromiumExtensionId 'repaired Chrome'
+    Test-NativeConnection $hostPath @($origin) $chromiumExtensionId 'repaired Edge'
+    Test-NativeConnection $hostPath @($firefoxManifestPath, $firefoxExtensionId) `
+        $firefoxExtensionId 'repaired Firefox'
     Write-Host 'Per-user installer and three-browser native-host smoke test passed.'
 } finally {
     $env:LOCALAPPDATA = $previousLocalAppData

@@ -163,7 +163,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S151 | DONE | Engine `import_archive::tests` verify S150 round-trip, complete merge/replace previews, revision-bound all-section commits, failed-transaction preservation, stale-preview refusal, and old/corrupt/tampered/duplicate rejection; focused tests and strict clippy pass. |
 | S152 | DONE | `scripts/test-windows-installer.ps1` builds the versioned x64 package, installs it under an isolated current-user `%LOCALAPPDATA%`, launches both packaged executables, rejects a tampered payload before installation, and proves S153 browser registration remains absent; the cold release smoke and scoped formatting checks pass. |
 | S153 | DONE | The packaged current-user installer verifies and installs its native-host registrar, writes exact packaged-ID Chromium and Firefox manifests, registers Chrome/Edge/Firefox without elevation, emits bounded onboarding state, and completes a correlated health exchange through every browser launch contract; the isolated three-browser installer smoke and fast verification gates pass. |
-| S154 | TODO | — |
+| S154 | DONE | Packaged `native-host-registration.ps1 -Action Repair` deterministically recreates missing/corrupt Chrome, Edge, and Firefox manifests, current-user registrations, and onboarding state; the isolated installer smoke seeds mixed failures and verifies repaired three-browser health exchanges. |
 | S155 | TODO | — |
 | S156 | TODO | — |
 | S157 | TODO | — |

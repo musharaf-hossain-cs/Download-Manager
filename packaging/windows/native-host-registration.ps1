@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory)]
     [string] $HostPath,
 
+    [ValidateSet('Register', 'Repair')]
+    [string] $Action = 'Register',
+
     [string] $ManifestRoot,
     [string] $OnboardingPath,
     [string] $RegistrationRoot = 'Registry::HKEY_CURRENT_USER\Software',
@@ -37,6 +40,10 @@ $OnboardingPath = [IO.Path]::GetFullPath($OnboardingPath)
 $chromiumManifestPath = Join-Path $ManifestRoot "$hostName.json"
 $firefoxManifestPath = Join-Path $ManifestRoot "$hostName.firefox.json"
 
+if ($Action -eq 'Repair' -and -not (Test-Path -LiteralPath $OnboardingPath -PathType Leaf)) {
+    Write-Verbose 'Browser onboarding state is missing and will be recreated.'
+}
+
 function Write-JsonAtomic([string] $Path, [object] $Value) {
     $directory = Split-Path -Parent $Path
     [IO.Directory]::CreateDirectory($directory) | Out-Null
@@ -48,7 +55,14 @@ function Write-JsonAtomic([string] $Path, [object] $Value) {
             [Text.UTF8Encoding]::new($false)
         )
         if (Test-Path -LiteralPath $Path -PathType Leaf) {
-            [IO.File]::Replace($temporaryPath, $Path, $null)
+            $backupPath = "$temporaryPath.backup"
+            try {
+                [IO.File]::Replace($temporaryPath, $Path, $backupPath)
+            } finally {
+                if (Test-Path -LiteralPath $backupPath) {
+                    Remove-Item -LiteralPath $backupPath -Force
+                }
+            }
         } else {
             [IO.File]::Move($temporaryPath, $Path)
         }
