@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::domain::{RequestId, UnixMillis};
+use crate::{
+    domain::{RequestId, UnixMillis},
+    redaction::{redact_json_value, redact_secrets},
+};
 
 /// Absolute ceiling for one configured log file.
 pub const MAX_LOG_FILE_BYTES: u64 = 16 * 1024 * 1024;
@@ -149,16 +152,18 @@ impl StructuredLog {
     /// invalid, or when rotation/append cannot complete.
     pub fn write(&self, entry: &StructuredLogEntry) -> Result<(), StructuredLogError> {
         validate_entry(entry)?;
-        let mut record = serde_json::to_vec(entry)?;
-        record.push(b'\n');
         let configured_max = usize::try_from(self.limits.max_file_bytes).unwrap_or(usize::MAX);
         let maximum = configured_max.min(MAX_LOG_RECORD_BYTES);
-        if record.len() > maximum {
-            return Err(StructuredLogError::RecordTooLarge {
-                actual: record.len(),
-                maximum,
-            });
-        }
+        validate_record_size(serde_json::to_vec(entry)?.len() + 1, maximum)?;
+
+        let mut safe_entry = entry.clone();
+        safe_entry.component = redact_secrets(&entry.component);
+        safe_entry.event_type = redact_secrets(&entry.event_type);
+        safe_entry.detail = redact_json_value(&entry.detail);
+        validate_entry(&safe_entry)?;
+        let mut record = serde_json::to_vec(&safe_entry)?;
+        record.push(b'\n');
+        validate_record_size(record.len(), maximum)?;
 
         let _guard = self
             .write_lock
@@ -204,6 +209,14 @@ impl StructuredLog {
         if self.path.exists() {
             fs::rename(self.path.as_ref(), rotated_path(self.path.as_ref(), 1))?;
         }
+        Ok(())
+    }
+}
+
+fn validate_record_size(actual: usize, maximum: usize) -> Result<(), StructuredLogError> {
+    if actual > maximum {
+        Err(StructuredLogError::RecordTooLarge { actual, maximum })
+    } else {
         Ok(())
     }
 }
@@ -364,5 +377,35 @@ mod tests {
             .map(|record| record.correlation_id)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), records.len());
+    }
+
+    #[test]
+    fn secret_bearing_structured_details_are_redacted_before_disk() {
+        let directory = tempdir().expect("temp directory");
+        let path = directory.path().join("engine.jsonl");
+        let log = StructuredLog::open(&path, StructuredLogLimits::default()).expect("log");
+        log.write(&entry(
+            1,
+            json!({
+                "authorization": "Bearer structured-auth-sentinel",
+                "message": "Cookie: sid=embedded-cookie-sentinel",
+                "url": "https://user:url-password-sentinel@files.test/file?X-Amz-Signature=signed-url-sentinel&safe=visible",
+                "nested": { "access_token": "nested-token-sentinel" }
+            }),
+        ))
+        .expect("write redacted detail");
+
+        let persisted = fs::read_to_string(&path).expect("persisted log");
+        for secret in [
+            "structured-auth-sentinel",
+            "embedded-cookie-sentinel",
+            "url-password-sentinel",
+            "signed-url-sentinel",
+            "nested-token-sentinel",
+        ] {
+            assert!(!persisted.contains(secret), "secret remained: {secret}");
+        }
+        assert!(persisted.contains("safe=visible"));
+        assert!(persisted.contains("[REDACTED]"));
     }
 }

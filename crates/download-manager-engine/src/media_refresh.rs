@@ -7,6 +7,7 @@ use crate::{
     dash::{DashSegmentPlan, DashSegmentResource},
     domain::{HttpUrl, JobId, JobMetadata},
     media::{HlsInitSegment, HlsMediaPlaylist, HlsMediaSegment},
+    redaction::is_sensitive_query_parameter,
     state::DownloadState,
 };
 
@@ -286,31 +287,11 @@ fn validate_url_locator(original: &Url, refreshed: &Url) -> Result<(), RefreshEr
 fn stable_query(url: &Url) -> Vec<(String, String)> {
     let mut pairs = url
         .query_pairs()
-        .filter(|(name, _)| !is_signature_parameter(name))
+        .filter(|(name, _)| !is_sensitive_query_parameter(name))
         .map(|(name, value)| (name.into_owned(), value.into_owned()))
         .collect::<Vec<_>>();
     pairs.sort_unstable();
     pairs
-}
-
-fn is_signature_parameter(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.starts_with("x-amz-")
-        || name.starts_with("x-goog-")
-        || matches!(
-            name.as_str(),
-            "token"
-                | "auth"
-                | "authorization"
-                | "sig"
-                | "signature"
-                | "expires"
-                | "expiry"
-                | "exp"
-                | "policy"
-                | "key-pair-id"
-                | "hdnts"
-        )
 }
 
 #[cfg(test)]
@@ -321,7 +302,7 @@ mod tests {
 
     use super::{
         RefreshError, RefreshRequest, RefreshScope, validate_dash_refresh, validate_hls_refresh,
-        validate_refresh_request,
+        validate_refresh_request, validate_url_locator,
     };
     use crate::{
         dash::{DashByteRange, DashMediaSegment, DashSegmentPlan, DashSegmentResource},
@@ -332,6 +313,25 @@ mod tests {
 
     fn scope(session: &str) -> RefreshScope {
         RefreshScope::new("firefox", "profile-abcdefghijkl", session).expect("scope")
+    }
+
+    #[test]
+    fn non_signature_query_fields_remain_part_of_refresh_identity() {
+        let original = Url::parse(
+            "https://media.example/video.m3u8?password=old&api-key=old&session=old&key_pair_id=old",
+        )
+        .expect("original URL");
+        for refreshed in [
+            "https://media.example/video.m3u8?password=new&api-key=old&session=old&key_pair_id=old",
+            "https://media.example/video.m3u8?password=old&api-key=new&session=old&key_pair_id=old",
+            "https://media.example/video.m3u8?password=old&api-key=old&session=new&key_pair_id=old",
+            "https://media.example/video.m3u8?password=old&api-key=old&session=old&key_pair_id=new",
+        ] {
+            assert_eq!(
+                validate_url_locator(&original, &Url::parse(refreshed).expect("refreshed URL")),
+                Err(RefreshError::ObjectMismatch("resource URL locator"))
+            );
+        }
     }
 
     fn job(id: JobId) -> JobMetadata {

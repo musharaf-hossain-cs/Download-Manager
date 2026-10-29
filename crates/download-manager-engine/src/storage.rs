@@ -17,6 +17,7 @@ use crate::{
         DownloadKind, EventId, HttpUrl, JobId, JobMetadata, Priority, RangeCapability,
         RemoteIdentity, Segment, SegmentId, UnixMillis, ValidationError,
     },
+    redaction::redact_secrets,
     request_context::{RequestContext, RequestContextError, sanitize_durable_url},
     state::{DownloadEvent, DownloadState, StateTransition, TransitionError, reduce_state},
 };
@@ -540,6 +541,8 @@ impl Database {
     /// Returns [`StorageError`] for invalid event data or persistence failures.
     pub fn append_event(&mut self, event: &AuditEvent) -> Result<i64, StorageError> {
         validate_event(event)?;
+        let event = redact_audit_event(event);
+        validate_event(&event)?;
         let sequence = self.connection.query_row(
             "INSERT INTO event_log \
              (id, job_id, timestamp_ms, component, severity, event_type, correlation_id, redacted_detail) \
@@ -548,11 +551,11 @@ impl Database {
                 event.id.to_string(),
                 event.job_id.to_string(),
                 event.timestamp.get(),
-                event.component,
-                event.severity,
-                event.event_type,
-                event.correlation_id,
-                event.redacted_detail,
+                event.component.as_str(),
+                event.severity.as_str(),
+                event.event_type.as_str(),
+                event.correlation_id.as_deref(),
+                event.redacted_detail.as_str(),
             ],
             |row| row.get(0),
         )?;
@@ -703,7 +706,7 @@ impl Database {
                 from: current,
                 to: next,
                 at,
-                reason,
+                reason: reason.map(|value| redact_secrets(&value)),
             },
         };
         transaction.execute(
@@ -1126,7 +1129,26 @@ fn validate_event(event: &AuditEvent) -> Result<(), StorageError> {
             return Err(StorageError::Corrupt(format!("invalid event {name}")));
         }
     }
+    if event
+        .correlation_id
+        .as_deref()
+        .is_some_and(|value| value.is_empty() || value.len() > 128)
+    {
+        return Err(StorageError::Corrupt(
+            "invalid event correlation_id".to_owned(),
+        ));
+    }
     Ok(())
+}
+
+fn redact_audit_event(event: &AuditEvent) -> AuditEvent {
+    let mut event = event.clone();
+    event.component = redact_secrets(&event.component);
+    event.severity = redact_secrets(&event.severity);
+    event.event_type = redact_secrets(&event.event_type);
+    event.correlation_id = event.correlation_id.map(|value| redact_secrets(&value));
+    event.redacted_detail = redact_secrets(&event.redacted_detail);
+    event
 }
 
 fn u64_to_i64(value: u64) -> Result<i64, StorageError> {
@@ -1631,6 +1653,48 @@ mod tests {
                 .is_err()
         );
         assert_eq!(database.events(metadata.id).expect("events").len(), 1);
+    }
+
+    #[test]
+    fn audit_event_and_transition_reason_are_redacted_before_sqlite() {
+        let mut database = Database::open_in_memory().expect("database");
+        let metadata = job(DownloadState::Created, 1);
+        database.create_job(&metadata, None).expect("job");
+        database
+            .append_event(&AuditEvent {
+                id: EventId::new(),
+                job_id: metadata.id,
+                sequence: 0,
+                timestamp: timestamp(2),
+                component: "engine".to_owned(),
+                severity: "error".to_owned(),
+                event_type: "request_failed".to_owned(),
+                correlation_id: Some("request.token=correlation-sentinel".to_owned()),
+                redacted_detail: "Authorization: Bearer audit-auth-sentinel\nfailed https://files.test/item?token=audit-url-sentinel&safe=visible".to_owned(),
+            })
+            .expect("append event");
+        database
+            .transition_job(
+                metadata.id,
+                DownloadState::Probing,
+                timestamp(3),
+                Some(
+                    "retry https://files.test/item?X-Amz-Signature=transition-sentinel".to_owned(),
+                ),
+            )
+            .expect("transition");
+
+        let persisted = format!("{:?}", database.events(metadata.id).expect("events"));
+        for secret in [
+            "correlation-sentinel",
+            "audit-auth-sentinel",
+            "audit-url-sentinel",
+            "transition-sentinel",
+        ] {
+            assert!(!persisted.contains(secret), "secret remained: {secret}");
+        }
+        assert!(persisted.contains("safe=visible"));
+        assert!(persisted.contains("[REDACTED]"));
     }
 
     #[test]
