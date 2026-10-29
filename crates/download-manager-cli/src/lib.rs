@@ -1,6 +1,6 @@
 //! Versioned command contract for Download Manager automation.
 
-use std::{ffi::OsString, fmt::Write as _, io::Write, path::PathBuf, str::FromStr};
+use std::{ffi::OsString, fmt::Write as _, io::Write, path::PathBuf, str::FromStr, time::Duration};
 
 use download_manager_engine::{
     domain::{HttpUrl, JobId},
@@ -12,10 +12,15 @@ use serde::Serialize;
 pub const CLI_CONTRACT_VERSION: u16 = 1;
 
 pub const HELP: &str = "Download Manager command-line interface\n\n\
-Usage:\n  download-manager-cli add URL --output DIRECTORY [--name FILENAME] [--later] [--json]\n  \
+Usage:\n  download-manager-cli add URL --output DIRECTORY [--name FILENAME] [--later] [--queue NAME] [--quiet] [--wait [--timeout SECONDS]] [--json]\n  \
 download-manager-cli list [--json]\n  download-manager-cli status JOB_ID [--json]\n  \
 download-manager-cli pause|resume|cancel JOB_ID [--json]\n  \
+download-manager-cli queue start NAME [--quiet] [--json]\n  \
 download-manager-cli --version\n";
+
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(3_600);
+const MAX_WAIT_TIMEOUT_SECS: u64 = 604_800;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliExit {
@@ -24,6 +29,8 @@ pub enum CliExit {
     NotFound,
     Rejected,
     Transport,
+    Timeout,
+    Cancelled,
 }
 
 impl CliExit {
@@ -35,6 +42,8 @@ impl CliExit {
             Self::NotFound => 3,
             Self::Rejected => 4,
             Self::Transport => 5,
+            Self::Timeout => 124,
+            Self::Cancelled => 130,
         }
     }
 }
@@ -45,6 +54,7 @@ pub struct AddRequest {
     pub output_directory: PathBuf,
     pub filename: Option<String>,
     pub start_now: bool,
+    pub queue: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -54,6 +64,32 @@ pub struct JobView {
     pub filename: String,
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QueueStart {
+    pub name: String,
+    pub started_jobs: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitSignal {
+    Elapsed(Duration),
+    Cancelled,
+}
+
+/// Injectable clock/sleep/cancellation boundary for deterministic wait behavior.
+pub trait WaitControl {
+    fn wait(&mut self, interval: Duration) -> WaitSignal;
+}
+
+pub struct ThreadWaiter;
+
+impl WaitControl for ThreadWaiter {
+    fn wait(&mut self, interval: Duration) -> WaitSignal {
+        std::thread::sleep(interval);
+        WaitSignal::Elapsed(interval)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +124,12 @@ pub trait CliBackend {
     /// # Errors
     /// Returns not-found, invalid-state rejection, or transport failure.
     fn control(&mut self, job_id: JobId, action: JobAction) -> Result<JobView, BackendError>;
+
+    /// Starts one named queue.
+    ///
+    /// # Errors
+    /// Returns not-found, engine rejection, or transport failure.
+    fn start_queue(&mut self, name: &str) -> Result<QueueStart, BackendError>;
 }
 
 /// Safe binary fallback until the authenticated local IPC transport is wired to this contract.
@@ -109,6 +151,10 @@ impl CliBackend for UnavailableBackend {
     fn control(&mut self, _job_id: JobId, _action: JobAction) -> Result<JobView, BackendError> {
         Err(unavailable())
     }
+
+    fn start_queue(&mut self, _name: &str) -> Result<QueueStart, BackendError> {
+        Err(unavailable())
+    }
 }
 
 fn unavailable() -> BackendError {
@@ -119,7 +165,7 @@ fn unavailable() -> BackendError {
 enum Command {
     Help,
     Version,
-    Add(AddRequest),
+    Add(AddCommand),
     List,
     Status(JobId),
     Control {
@@ -127,6 +173,17 @@ enum Command {
         job_id: JobId,
         action: JobAction,
     },
+    QueueStart {
+        name: String,
+        quiet: bool,
+    },
+}
+
+#[derive(Debug)]
+struct AddCommand {
+    request: AddRequest,
+    quiet: bool,
+    wait_timeout: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -166,6 +223,26 @@ where
     O: Write,
     E: Write,
 {
+    let mut waiter = ThreadWaiter;
+    run_with_waiter(args, backend, &mut waiter, stdout, stderr)
+}
+
+/// Executes one invocation with injectable waiting and cancellation behavior.
+pub fn run_with_waiter<B, I, S, O, E, W>(
+    args: I,
+    backend: &mut B,
+    waiter: &mut W,
+    stdout: &mut O,
+    stderr: &mut E,
+) -> CliExit
+where
+    B: CliBackend,
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+    O: Write,
+    E: Write,
+    W: WaitControl,
+{
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     let json_requested = args.iter().any(|arg| arg == "--json");
     let command_hint = args
@@ -191,8 +268,18 @@ where
             ),
             CliExit::Success,
         ),
-        Command::Add(request) => match backend.add(request) {
-            Ok(job) => emit_job(parsed.json, "add", &job, stdout),
+        Command::Add(command) => match backend.add(command.request) {
+            Ok(job) => {
+                let job = if let Some(timeout) = command.wait_timeout {
+                    match wait_for_job(backend, waiter, job, timeout, parsed.json, stderr) {
+                        Ok(job) => job,
+                        Err(exit) => return exit,
+                    }
+                } else {
+                    job
+                };
+                emit_job(parsed.json, command.quiet, "add", &job, stdout)
+            }
             Err(error) => emit_backend_error(parsed.json, "add", &error, stderr),
         },
         Command::List => match backend.list() {
@@ -200,7 +287,7 @@ where
             Err(error) => emit_backend_error(parsed.json, "list", &error, stderr),
         },
         Command::Status(job_id) => match backend.status(job_id) {
-            Ok(job) => emit_job(parsed.json, "status", &job, stdout),
+            Ok(job) => emit_job(parsed.json, false, "status", &job, stdout),
             Err(error) => emit_backend_error(parsed.json, "status", &error, stderr),
         },
         Command::Control {
@@ -208,8 +295,12 @@ where
             job_id,
             action,
         } => match backend.control(job_id, action) {
-            Ok(job) => emit_job(parsed.json, name, &job, stdout),
+            Ok(job) => emit_job(parsed.json, false, name, &job, stdout),
             Err(error) => emit_backend_error(parsed.json, name, &error, stderr),
+        },
+        Command::QueueStart { name, quiet } => match backend.start_queue(&name) {
+            Ok(queue) => emit_queue(parsed.json, quiet, &queue, stdout),
+            Err(error) => emit_backend_error(parsed.json, "queue_start", &error, stderr),
         },
     }
 }
@@ -258,6 +349,7 @@ fn parse(args: Vec<OsString>) -> Result<Parsed, String> {
                 action,
             }
         }
+        "queue" => parse_queue(&filtered[1..])?,
         "list" | "status" | "pause" | "resume" | "cancel" | "--help" | "-h" | "--version"
         | "-V" => {
             return Err(format!("invalid arguments for {command}\n\n{HELP}"));
@@ -267,7 +359,7 @@ fn parse(args: Vec<OsString>) -> Result<Parsed, String> {
     Ok(Parsed { command, json })
 }
 
-fn parse_add(args: &[OsString]) -> Result<AddRequest, String> {
+fn parse_add(args: &[OsString]) -> Result<AddCommand, String> {
     let Some(source) = args.first() else {
         return Err(format!(
             "add requires a URL and --output DIRECTORY\n\n{HELP}"
@@ -276,7 +368,11 @@ fn parse_add(args: &[OsString]) -> Result<AddRequest, String> {
     let source_url = HttpUrl::parse(unicode(source, "URL")?).map_err(|error| error.to_string())?;
     let mut output_directory = None;
     let mut filename = None;
+    let mut queue = None;
     let mut start_now = true;
+    let mut quiet = false;
+    let mut wait = false;
+    let mut timeout = None;
     let mut index = 1;
     while index < args.len() {
         match unicode(&args[index], "option")? {
@@ -304,18 +400,84 @@ fn parse_add(args: &[OsString]) -> Result<AddRequest, String> {
             }
             "--later" if start_now => start_now = false,
             "--later" => return Err("--later may be specified only once".to_owned()),
+            "--queue" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--queue requires a name".to_owned())?;
+                let value = bounded_name(unicode(value, "queue name")?)?;
+                if queue.replace(value.to_owned()).is_some() {
+                    return Err("--queue may be specified only once".to_owned());
+                }
+            }
+            "--quiet" if !quiet => quiet = true,
+            "--quiet" => return Err("--quiet may be specified only once".to_owned()),
+            "--wait" if !wait => wait = true,
+            "--wait" => return Err("--wait may be specified only once".to_owned()),
+            "--timeout" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| "--timeout requires seconds".to_owned())?;
+                let seconds = unicode(value, "timeout")?
+                    .parse::<u64>()
+                    .map_err(|_| "timeout must be a positive integer".to_owned())?;
+                if seconds == 0 || seconds > MAX_WAIT_TIMEOUT_SECS {
+                    return Err(format!(
+                        "timeout must be between 1 and {MAX_WAIT_TIMEOUT_SECS} seconds"
+                    ));
+                }
+                if timeout.replace(Duration::from_secs(seconds)).is_some() {
+                    return Err("--timeout may be specified only once".to_owned());
+                }
+            }
             value => return Err(format!("unknown add option: {value}")),
         }
         index += 1;
     }
     let output_directory =
         output_directory.ok_or_else(|| "add requires --output DIRECTORY".to_owned())?;
-    Ok(AddRequest {
-        source_url,
-        output_directory,
-        filename,
-        start_now,
+    if timeout.is_some() && !wait {
+        return Err("--timeout requires --wait".to_owned());
+    }
+    if wait && !start_now {
+        return Err("--wait cannot be combined with --later".to_owned());
+    }
+    Ok(AddCommand {
+        request: AddRequest {
+            source_url,
+            output_directory,
+            filename,
+            start_now,
+            queue,
+        },
+        quiet,
+        wait_timeout: wait.then_some(timeout.unwrap_or(DEFAULT_WAIT_TIMEOUT)),
     })
+}
+
+fn parse_queue(args: &[OsString]) -> Result<Command, String> {
+    if args.len() < 2 || unicode(&args[0], "queue action")? != "start" {
+        return Err(format!("queue requires: queue start NAME\n\n{HELP}"));
+    }
+    let name = bounded_name(unicode(&args[1], "queue name")?)?.to_owned();
+    let mut quiet = false;
+    for option in &args[2..] {
+        match unicode(option, "queue option")? {
+            "--quiet" if !quiet => quiet = true,
+            "--quiet" => return Err("--quiet may be specified only once".to_owned()),
+            value => return Err(format!("unknown queue option: {value}")),
+        }
+    }
+    Ok(Command::QueueStart { name, quiet })
+}
+
+fn bounded_name(value: &str) -> Result<&str, String> {
+    if value.is_empty() || value.len() > 256 || value.trim() != value {
+        Err("queue name must contain 1 to 256 non-padding characters".to_owned())
+    } else {
+        Ok(value)
+    }
 }
 
 fn unicode<'a>(value: &'a OsString, field: &str) -> Result<&'a str, String> {
@@ -324,7 +486,13 @@ fn unicode<'a>(value: &'a OsString, field: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("{field} must be valid Unicode"))
 }
 
-fn emit_job<O: Write>(json: bool, command: &str, job: &JobView, stdout: &mut O) -> CliExit {
+fn emit_job<O: Write>(
+    json: bool,
+    quiet: bool,
+    command: &str,
+    job: &JobView,
+    stdout: &mut O,
+) -> CliExit {
     if json {
         emit_json(
             stdout,
@@ -335,6 +503,8 @@ fn emit_job<O: Write>(json: bool, command: &str, job: &JobView, stdout: &mut O) 
                 data: job,
             },
         )
+    } else if quiet {
+        CliExit::Success
     } else {
         emit_text(
             stdout,
@@ -348,6 +518,85 @@ fn emit_job<O: Write>(json: bool, command: &str, job: &JobView, stdout: &mut O) 
             ),
             CliExit::Success,
         )
+    }
+}
+
+fn emit_queue<O: Write>(json: bool, quiet: bool, queue: &QueueStart, stdout: &mut O) -> CliExit {
+    if json {
+        emit_json(
+            stdout,
+            &SuccessEnvelope {
+                contract_version: CLI_CONTRACT_VERSION,
+                command: "queue_start",
+                ok: true,
+                data: queue,
+            },
+        )
+    } else if quiet {
+        CliExit::Success
+    } else {
+        emit_text(
+            stdout,
+            &format!("{}\t{}\n", queue.name, queue.started_jobs),
+            CliExit::Success,
+        )
+    }
+}
+
+fn wait_for_job<B: CliBackend, W: WaitControl, E: Write>(
+    backend: &mut B,
+    waiter: &mut W,
+    mut job: JobView,
+    timeout: Duration,
+    json: bool,
+    stderr: &mut E,
+) -> Result<JobView, CliExit> {
+    let mut elapsed = Duration::ZERO;
+    loop {
+        match job.state {
+            DownloadState::Completed => return Ok(job),
+            DownloadState::Cancelled => {
+                emit_error(
+                    json,
+                    "add",
+                    "wait_cancelled",
+                    "download was cancelled",
+                    stderr,
+                );
+                return Err(CliExit::Cancelled);
+            }
+            DownloadState::Failed | DownloadState::MissingLocalFile => {
+                emit_error(
+                    json,
+                    "add",
+                    "job_failed",
+                    "download did not complete",
+                    stderr,
+                );
+                return Err(CliExit::Rejected);
+            }
+            _ => {}
+        }
+
+        let remaining = timeout.saturating_sub(elapsed);
+        let interval = WAIT_POLL_INTERVAL.min(remaining);
+        match waiter.wait(interval) {
+            WaitSignal::Cancelled => {
+                emit_error(json, "add", "wait_cancelled", "wait was cancelled", stderr);
+                return Err(CliExit::Cancelled);
+            }
+            WaitSignal::Elapsed(duration) => {
+                elapsed = elapsed.saturating_add(duration);
+                if elapsed >= timeout {
+                    emit_error(json, "add", "wait_timeout", "wait timed out", stderr);
+                    return Err(CliExit::Timeout);
+                }
+            }
+        }
+        job = match backend.status(job.id) {
+            Ok(job) => job,
+            Err(error) => return Err(emit_backend_error(json, "add", &error, stderr)),
+        };
     }
 }
 
@@ -440,11 +689,14 @@ fn emit_text<O: Write>(stdout: &mut O, output: &str, success: CliExit) -> CliExi
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, str::FromStr};
+    use std::{collections::VecDeque, path::PathBuf, str::FromStr, time::Duration};
 
     use download_manager_engine::{domain::JobId, ipc::JobAction, state::DownloadState};
 
-    use super::{AddRequest, BackendError, CliBackend, CliExit, JobView, run};
+    use super::{
+        AddRequest, BackendError, CliBackend, CliExit, JobView, QueueStart, WaitControl,
+        WaitSignal, run, run_with_waiter,
+    };
 
     const JOB_ID: &str = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -455,6 +707,8 @@ mod tests {
         jobs: Vec<JobView>,
         status_error: Option<BackendError>,
         control_error: Option<BackendError>,
+        wait_states: VecDeque<DownloadState>,
+        started_queues: Vec<String>,
     }
 
     impl CliBackend for FixtureBackend {
@@ -471,7 +725,11 @@ mod tests {
             if let Some(error) = self.status_error.take() {
                 Err(error)
             } else {
-                Ok(self.jobs[0].clone())
+                let mut job = self.jobs[0].clone();
+                if let Some(state) = self.wait_states.pop_front() {
+                    job.state = state;
+                }
+                Ok(job)
             }
         }
 
@@ -490,6 +748,14 @@ mod tests {
                 }
             };
             Ok(job)
+        }
+
+        fn start_queue(&mut self, name: &str) -> Result<QueueStart, BackendError> {
+            self.started_queues.push(name.to_owned());
+            Ok(QueueStart {
+                name: name.to_owned(),
+                started_jobs: 3,
+            })
         }
     }
 
@@ -514,6 +780,42 @@ mod tests {
         )
     }
 
+    struct FixtureWaiter {
+        signals: VecDeque<WaitSignal>,
+    }
+
+    impl WaitControl for FixtureWaiter {
+        fn wait(&mut self, interval: Duration) -> WaitSignal {
+            self.signals
+                .pop_front()
+                .unwrap_or(WaitSignal::Elapsed(interval))
+        }
+    }
+
+    fn invoke_wait(
+        args: &[&str],
+        backend: &mut FixtureBackend,
+        signals: impl IntoIterator<Item = WaitSignal>,
+    ) -> (CliExit, String, String) {
+        let mut waiter = FixtureWaiter {
+            signals: signals.into_iter().collect(),
+        };
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let exit = run_with_waiter(
+            args.iter().copied(),
+            backend,
+            &mut waiter,
+            &mut stdout,
+            &mut stderr,
+        );
+        (
+            exit,
+            String::from_utf8(stdout).expect("stdout UTF-8"),
+            String::from_utf8(stderr).expect("stderr UTF-8"),
+        )
+    }
+
     #[test]
     fn add_json_golden_preserves_quoted_values_and_start_choice() {
         let mut backend = FixtureBackend {
@@ -529,6 +831,8 @@ mod tests {
                 "--name",
                 "release file.zip",
                 "--later",
+                "--queue",
+                "Night Queue",
                 "--json",
             ],
             &mut backend,
@@ -557,6 +861,7 @@ mod tests {
             Some("release file.zip")
         );
         assert!(!backend.added[0].start_now);
+        assert_eq!(backend.added[0].queue.as_deref(), Some("Night Queue"));
     }
 
     #[test]
@@ -666,5 +971,107 @@ mod tests {
                 "\n"
             )
         );
+    }
+
+    #[test]
+    fn queue_start_and_quiet_modes_have_stable_contracts() {
+        let mut backend = FixtureBackend::default();
+        let (exit, stdout, stderr) = invoke(&["queue", "start", "Night", "--json"], &mut backend);
+        assert_eq!(exit, CliExit::Success);
+        assert_eq!(
+            stdout,
+            "{\"contract_version\":1,\"command\":\"queue_start\",\"ok\":true,\"data\":{\"name\":\"Night\",\"started_jobs\":3}}\n"
+        );
+        assert_eq!(stderr, "");
+        assert_eq!(backend.started_queues, vec!["Night"]);
+
+        let mut quiet_backend = FixtureBackend {
+            jobs: vec![job()],
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) = invoke(
+            &[
+                "add",
+                "https://example.test/file.zip",
+                "--output",
+                "downloads",
+                "--quiet",
+            ],
+            &mut quiet_backend,
+        );
+        assert_eq!(exit, CliExit::Success);
+        assert_eq!(stdout, "");
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn wait_completes_after_injected_polls_and_emits_final_state() {
+        let mut backend = FixtureBackend {
+            jobs: vec![job()],
+            wait_states: [DownloadState::Downloading, DownloadState::Completed]
+                .into_iter()
+                .collect(),
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) = invoke_wait(
+            &[
+                "add",
+                "https://example.test/file.zip",
+                "--output",
+                "downloads",
+                "--wait",
+                "--timeout",
+                "2",
+                "--json",
+            ],
+            &mut backend,
+            [
+                WaitSignal::Elapsed(Duration::from_millis(200)),
+                WaitSignal::Elapsed(Duration::from_millis(200)),
+            ],
+        );
+
+        assert_eq!(exit, CliExit::Success);
+        assert!(stdout.contains("\"state\":\"completed\""));
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn wait_timeout_and_cancellation_have_stable_exits() {
+        let args = [
+            "add",
+            "https://example.test/file.zip",
+            "--output",
+            "downloads",
+            "--wait",
+            "--timeout",
+            "1",
+            "--json",
+        ];
+        let mut timeout_backend = FixtureBackend {
+            jobs: vec![job()],
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) = invoke_wait(
+            &args,
+            &mut timeout_backend,
+            [WaitSignal::Elapsed(Duration::from_secs(1))],
+        );
+        assert_eq!(exit.code(), 124);
+        assert_eq!(stdout, "");
+        assert_eq!(
+            stderr,
+            "{\"contract_version\":1,\"command\":\"add\",\"ok\":false,\"error\":{\"code\":\"wait_timeout\",\"message\":\"wait timed out\"}}\n"
+        );
+
+        let mut cancel_backend = FixtureBackend {
+            jobs: vec![job()],
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) =
+            invoke_wait(&args, &mut cancel_backend, [WaitSignal::Cancelled]);
+        assert_eq!(exit.code(), 130);
+        assert_eq!(stdout, "");
+        assert!(stderr.contains("\"code\":\"wait_cancelled\""));
     }
 }
