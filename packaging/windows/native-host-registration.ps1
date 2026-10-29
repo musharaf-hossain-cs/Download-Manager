@@ -1,9 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)]
     [string] $HostPath,
 
-    [ValidateSet('Register', 'Repair')]
+    [ValidateSet('Register', 'Repair', 'Unregister')]
     [string] $Action = 'Register',
 
     [string] $ManifestRoot,
@@ -24,16 +23,21 @@ if ($RegistrationRoot.StartsWith('Registry::', [StringComparison]::OrdinalIgnore
     -not $RegistrationRoot.Equals($registryRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Native-host registration is restricted to $registryRoot."
 }
-if (-not (Test-Path -LiteralPath $HostPath -PathType Leaf)) {
-    throw 'Native-host registration requires an installed host executable.'
+if ($Action -ne 'Unregister') {
+    if (-not $HostPath -or -not (Test-Path -LiteralPath $HostPath -PathType Leaf)) {
+        throw 'Native-host registration requires an installed host executable.'
+    }
+    $resolvedHost = (Resolve-Path -LiteralPath $HostPath).Path
 }
-$resolvedHost = (Resolve-Path -LiteralPath $HostPath).Path
 if (-not $ManifestRoot) {
     if (-not $env:LOCALAPPDATA) { throw 'LOCALAPPDATA is required when ManifestRoot is omitted.' }
     $ManifestRoot = Join-Path $env:LOCALAPPDATA 'DownloadManager\NativeMessagingHosts'
 }
 $ManifestRoot = [IO.Path]::GetFullPath($ManifestRoot)
 if (-not $OnboardingPath) {
+    if ($Action -eq 'Unregister') {
+        throw 'Unregister requires the exact installed onboarding path.'
+    }
     $OnboardingPath = Join-Path (Split-Path -Parent $resolvedHost) 'browser-onboarding.json'
 }
 $OnboardingPath = [IO.Path]::GetFullPath($OnboardingPath)
@@ -99,6 +103,38 @@ function Set-Registration([string] $Suffix, [string] $ManifestPath) {
         $ManifestPath,
         [Text.UTF8Encoding]::new($false)
     )
+}
+
+function Remove-OwnedPath([string] $Path, [switch] $Recurse) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if ($Recurse) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    } else {
+        Remove-Item -LiteralPath $Path -Force
+    }
+}
+
+if ($Action -eq 'Unregister') {
+    foreach ($suffix in @(
+        'Google\Chrome\NativeMessagingHosts',
+        'Microsoft\Edge\NativeMessagingHosts',
+        'Mozilla\NativeMessagingHosts'
+    )) {
+        $keyPath = Get-KeyPath $suffix
+        if (-not $RegistrationRoot.StartsWith('Registry::', [StringComparison]::OrdinalIgnoreCase)) {
+            $root = [IO.Path]::GetFullPath($RegistrationRoot).TrimEnd('\', '/') +
+                [IO.Path]::DirectorySeparatorChar
+            $target = [IO.Path]::GetFullPath($keyPath)
+            if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Refusing to unregister outside the isolated registration root: $target"
+            }
+        }
+        Remove-OwnedPath $keyPath -Recurse
+    }
+    Remove-OwnedPath $chromiumManifestPath
+    Remove-OwnedPath $firefoxManifestPath
+    Remove-OwnedPath $OnboardingPath
+    return
 }
 
 $chromiumManifest = [ordered]@{

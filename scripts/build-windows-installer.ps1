@@ -46,6 +46,11 @@ $inputs = @(
         Source = Join-Path $repositoryRoot 'packaging\windows\native-host-registration.ps1'
         PackagePath = 'payload/native-host-registration.ps1'
         Destination = 'native-host-registration.ps1'
+    },
+    [pscustomobject]@{
+        Source = Join-Path $repositoryRoot 'packaging\windows\uninstall.ps1'
+        PackagePath = 'payload/uninstall.ps1'
+        Destination = 'uninstall.ps1'
     }
 )
 foreach ($input in $inputs) {

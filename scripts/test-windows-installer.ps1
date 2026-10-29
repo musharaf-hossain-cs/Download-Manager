@@ -90,7 +90,7 @@ try {
     Expand-Archive -LiteralPath $archivePath -DestinationPath $expandedRoot
     $manifest = Get-Content -LiteralPath (Join-Path $expandedRoot 'package.json') -Raw |
         ConvertFrom-Json
-    if ($manifest.install_scope -ne 'current_user' -or @($manifest.files).Count -ne 3) {
+    if ($manifest.install_scope -ne 'current_user' -or @($manifest.files).Count -ne 4) {
         throw 'The packaged current-user manifest is invalid.'
     }
 
@@ -125,6 +125,7 @@ try {
         'download-manager.exe',
         'download-manager-native-host.exe',
         'native-host-registration.ps1',
+        'uninstall.ps1',
         'browser-onboarding.json',
         'install.json'
     )) {
@@ -243,7 +244,92 @@ try {
     Test-NativeConnection $hostPath @($origin) $chromiumExtensionId 'repaired Edge'
     Test-NativeConnection $hostPath @($firefoxManifestPath, $firefoxExtensionId) `
         $firefoxExtensionId 'repaired Firefox'
-    Write-Host 'Per-user installer and three-browser native-host smoke test passed.'
+
+    $uninstallPath = Join-Path $installRoot 'uninstall.ps1'
+    $userDataParameter = (Get-Command $uninstallPath).Parameters['UserData']
+    if (@($userDataParameter.Attributes | Where-Object {
+        $_ -is [Management.Automation.ParameterAttribute] -and $_.Mandatory
+    }).Count -ne 1) {
+        throw 'Uninstall must require an explicit user-data choice.'
+    }
+
+    $stateRoot = Join-Path $env:LOCALAPPDATA 'DownloadManager\State'
+    [IO.Directory]::CreateDirectory((Join-Path $stateRoot 'partials')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $stateRoot 'settings.json'), 'settings')
+    [IO.File]::WriteAllText((Join-Path $stateRoot 'history.sqlite'), 'history')
+    [IO.File]::WriteAllText((Join-Path $stateRoot 'partials\job.part'), 'partial')
+    $completedPath = Join-Path $temporaryRoot 'Downloads\completed.bin'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $completedPath)) | Out-Null
+    [IO.File]::WriteAllText($completedPath, 'completed-download')
+    $nestedCompletedPath = Join-Path $env:LOCALAPPDATA `
+        'DownloadManager\user-downloads\completed-inside-data-root.bin'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $nestedCompletedPath)) | Out-Null
+    [IO.File]::WriteAllText($nestedCompletedPath, 'nested-completed-download')
+    $shortcutPath = Join-Path $env:APPDATA `
+        'Microsoft\Windows\Start Menu\Programs\Download Manager.lnk'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $shortcutPath)) | Out-Null
+    [IO.File]::WriteAllText($shortcutPath, 'shortcut')
+    $registrationSentinel = Join-Path $registrationRoot 'unrelated-registration.txt'
+    [IO.File]::WriteAllText($registrationSentinel, 'keep')
+
+    & $uninstallPath -UserData Keep -RegistrationRoot $registrationRoot
+    if (Test-Path -LiteralPath $installRoot) { throw 'Keep uninstall left application files.' }
+    if (Test-Path -LiteralPath $shortcutPath) { throw 'Keep uninstall left the Start Menu shortcut.' }
+    if ((Test-Path -LiteralPath $chromiumManifestPath) -or
+        (Test-Path -LiteralPath $firefoxManifestPath)) {
+        throw 'Keep uninstall left a native-host manifest.'
+    }
+    foreach ($entry in $registrationExpectations.GetEnumerator()) {
+        $key = Join-Path $registrationRoot `
+            "$($entry.Key)\io.github.musharaf_hossain_cs.download_manager"
+        if (Test-Path -LiteralPath $key) {
+            throw "Keep uninstall left a browser registration: $($entry.Key)"
+        }
+    }
+    foreach ($name in @('settings.json', 'history.sqlite', 'partials\job.part')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $stateRoot $name) -PathType Leaf)) {
+            throw "Keep uninstall removed retained user data: $name"
+        }
+    }
+    if ((Get-Content -LiteralPath $completedPath -Raw) -ne 'completed-download') {
+        throw 'Keep uninstall changed a completed download.'
+    }
+    if ((Get-Content -LiteralPath $nestedCompletedPath -Raw) -ne 'nested-completed-download') {
+        throw 'Keep uninstall changed a completed download inside the application data root.'
+    }
+    if ((Get-Content -LiteralPath $registrationSentinel -Raw) -ne 'keep') {
+        throw 'Keep uninstall changed an unrelated registration.'
+    }
+
+    # Reinstall over the retained data, then exercise the explicit removal
+    # choice. Completed downloads remain outside every owned cleanup root.
+    $installRoot = & (Join-Path $expandedRoot 'install.ps1') -NoShortcut -PassThru `
+        -RegistrationRoot $registrationRoot
+    $uninstallPath = Join-Path $installRoot 'uninstall.ps1'
+    [IO.File]::WriteAllText($shortcutPath, 'shortcut')
+    & $uninstallPath -UserData Remove -RegistrationRoot $registrationRoot
+    if (Test-Path -LiteralPath $installRoot) { throw 'Remove uninstall left application files.' }
+    if (Test-Path -LiteralPath $stateRoot) {
+        throw 'Remove uninstall retained owned history, settings, or partial data.'
+    }
+    if (Test-Path -LiteralPath $shortcutPath) { throw 'Remove uninstall left the Start Menu shortcut.' }
+    foreach ($entry in $registrationExpectations.GetEnumerator()) {
+        $key = Join-Path $registrationRoot `
+            "$($entry.Key)\io.github.musharaf_hossain_cs.download_manager"
+        if (Test-Path -LiteralPath $key) {
+            throw "Remove uninstall left a browser registration: $($entry.Key)"
+        }
+    }
+    if ((Get-Content -LiteralPath $completedPath -Raw) -ne 'completed-download') {
+        throw 'Remove uninstall changed a completed download.'
+    }
+    if ((Get-Content -LiteralPath $nestedCompletedPath -Raw) -ne 'nested-completed-download') {
+        throw 'Remove uninstall changed a completed download inside the application data root.'
+    }
+    if ((Get-Content -LiteralPath $registrationSentinel -Raw) -ne 'keep') {
+        throw 'Remove uninstall changed an unrelated registration.'
+    }
+    Write-Host 'Per-user install, repair, and explicit-choice uninstall smoke test passed.'
 } finally {
     $env:LOCALAPPDATA = $previousLocalAppData
     $env:APPDATA = $previousAppData

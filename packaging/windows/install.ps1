@@ -24,7 +24,7 @@ if ($manifest.schema_version -ne 1 -or
     $manifest.install_scope -ne 'current_user' -or
     $manifest.architecture -ne 'x86_64' -or
     -not $manifest.version -or
-    @($manifest.files).Count -ne 3) {
+    @($manifest.files).Count -ne 4) {
     throw 'The installer package manifest is unsupported or incomplete.'
 }
 
@@ -43,6 +43,7 @@ $expectedPayloads = @{
     'payload/download-manager.exe' = 'download-manager.exe'
     'payload/download-manager-native-host.exe' = 'download-manager-native-host.exe'
     'payload/native-host-registration.ps1' = 'native-host-registration.ps1'
+    'payload/uninstall.ps1' = 'uninstall.ps1'
 }
 $seenDestinations = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($file in @($manifest.files)) {
