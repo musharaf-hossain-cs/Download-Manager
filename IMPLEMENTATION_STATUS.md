@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S153)
+- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S154)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -162,7 +162,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S150 | DONE | Engine `export_archive::tests` verify a deterministic versioned settings/categories/queues/history document, central redaction before preview/hash/disk, bounded section shapes, and no-overwrite export; focused tests and strict clippy pass. |
 | S151 | DONE | Engine `import_archive::tests` verify S150 round-trip, complete merge/replace previews, revision-bound all-section commits, failed-transaction preservation, stale-preview refusal, and old/corrupt/tampered/duplicate rejection; focused tests and strict clippy pass. |
 | S152 | DONE | `scripts/test-windows-installer.ps1` builds the versioned x64 package, installs it under an isolated current-user `%LOCALAPPDATA%`, launches both packaged executables, rejects a tampered payload before installation, and proves S153 browser registration remains absent; the cold release smoke and scoped formatting checks pass. |
-| S153 | TODO | — |
+| S153 | DONE | The packaged current-user installer verifies and installs its native-host registrar, writes exact packaged-ID Chromium and Firefox manifests, registers Chrome/Edge/Firefox without elevation, emits bounded onboarding state, and completes a correlated health exchange through every browser launch contract; the isolated three-browser installer smoke and fast verification gates pass. |
 | S154 | TODO | — |
 | S155 | TODO | — |
 | S156 | TODO | — |

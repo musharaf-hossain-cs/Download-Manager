@@ -41,6 +41,11 @@ $inputs = @(
         Source = Join-Path $BinaryDirectory 'download-manager-native-host.exe'
         PackagePath = 'payload/download-manager-native-host.exe'
         Destination = 'download-manager-native-host.exe'
+    },
+    [pscustomobject]@{
+        Source = Join-Path $repositoryRoot 'packaging\windows\native-host-registration.ps1'
+        PackagePath = 'payload/native-host-registration.ps1'
+        Destination = 'native-host-registration.ps1'
     }
 )
 foreach ($input in $inputs) {

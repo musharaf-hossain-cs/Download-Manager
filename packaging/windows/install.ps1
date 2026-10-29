@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch] $NoShortcut,
-    [switch] $PassThru
+    [switch] $PassThru,
+    [string] $RegistrationRoot = 'Registry::HKEY_CURRENT_USER\Software'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,7 +24,7 @@ if ($manifest.schema_version -ne 1 -or
     $manifest.install_scope -ne 'current_user' -or
     $manifest.architecture -ne 'x86_64' -or
     -not $manifest.version -or
-    @($manifest.files).Count -ne 2) {
+    @($manifest.files).Count -ne 3) {
     throw 'The installer package manifest is unsupported or incomplete.'
 }
 
@@ -38,11 +39,15 @@ if (Test-Path -LiteralPath $installRoot) {
     throw "Download Manager is already installed at '$installRoot'."
 }
 
-$expectedDestinations = @('download-manager.exe', 'download-manager-native-host.exe')
+$expectedPayloads = @{
+    'payload/download-manager.exe' = 'download-manager.exe'
+    'payload/download-manager-native-host.exe' = 'download-manager-native-host.exe'
+    'payload/native-host-registration.ps1' = 'native-host-registration.ps1'
+}
 $seenDestinations = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($file in @($manifest.files)) {
-    if ($file.source -cnotmatch '^payload/[a-z0-9.-]+\.exe$' -or
-        $expectedDestinations -notcontains $file.destination -or
+    if ($file.source -cnotmatch '^payload/[a-z0-9.-]+\.(?:exe|ps1)$' -or
+        $expectedPayloads[[string] $file.source] -cne $file.destination -or
         -not $seenDestinations.Add([string] $file.destination) -or
         $file.sha256 -cnotmatch '^[A-Fa-f0-9]{64}$') {
         throw 'The installer package contains an invalid file entry.'
@@ -56,8 +61,8 @@ foreach ($file in @($manifest.files)) {
         throw "The installer payload failed integrity verification: '$($file.source)'."
     }
 }
-if ($seenDestinations.Count -ne $expectedDestinations.Count) {
-    throw 'The installer package does not contain every required executable.'
+if ($seenDestinations.Count -ne $expectedPayloads.Count) {
+    throw 'The installer package does not contain every required payload file.'
 }
 
 [IO.Directory]::CreateDirectory($programsRoot) | Out-Null
@@ -85,6 +90,10 @@ try {
     }
 
     [IO.Directory]::Move($stagingRoot, $installRoot)
+    & (Join-Path $installRoot 'native-host-registration.ps1') `
+        -HostPath (Join-Path $installRoot 'download-manager-native-host.exe') `
+        -OnboardingPath (Join-Path $installRoot 'browser-onboarding.json') `
+        -RegistrationRoot $RegistrationRoot
     if (-not $NoShortcut) {
         $startMenuRoot = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
         [IO.Directory]::CreateDirectory($startMenuRoot) | Out-Null
