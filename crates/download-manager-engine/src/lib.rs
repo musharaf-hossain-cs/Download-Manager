@@ -21,6 +21,7 @@ pub mod grabber_filter;
 pub mod grabber_limits;
 pub mod grabber_offline;
 pub mod grabber_policy;
+pub mod grabber_sync;
 pub mod hls;
 pub mod integrity;
 pub mod ipc;
