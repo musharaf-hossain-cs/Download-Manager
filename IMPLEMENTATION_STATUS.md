@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-10-29
-- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S156)
+- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S157)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -165,7 +165,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S153 | DONE | The packaged current-user installer verifies and installs its native-host registrar, writes exact packaged-ID Chromium and Firefox manifests, registers Chrome/Edge/Firefox without elevation, emits bounded onboarding state, and completes a correlated health exchange through every browser launch contract; the isolated three-browser installer smoke and fast verification gates pass. |
 | S154 | DONE | Packaged `native-host-registration.ps1 -Action Repair` deterministically recreates missing/corrupt Chrome, Edge, and Firefox manifests, current-user registrations, and onboarding state; the isolated installer smoke seeds mixed failures and verifies repaired three-browser health exchanges. |
 | S155 | DONE | Packaged `uninstall.ps1` requires an explicit keep/remove choice for history, settings, and partials; both paths remove the exact app files, shortcut, onboarding state, manifests, and Chrome/Edge/Firefox registrations while preserving unrelated registrations and completed downloads; the isolated installer smoke verifies both choices. |
-| S156 | TODO | — |
+| S156 | DONE | Engine `update_verification::tests` use a deterministic test-only Ed25519 key to verify exact signed metadata, strict stable/x86_64/versioned artifact identity, and streamed SHA-256/size checks; wrong keys, invalid signatures, tampered metadata, modified/truncated artifacts, and signed unsafe metadata are rejected, and all fast verification gates pass. |
 | S157 | TODO | — |
 | S158 | TODO | — |
 | S159 | TODO | — |

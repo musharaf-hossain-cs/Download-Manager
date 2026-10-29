@@ -59,6 +59,7 @@ pub mod subtitle;
 pub mod system_policy;
 pub mod transfer;
 pub mod transfer_quota;
+pub mod update_verification;
 
 #[cfg(test)]
 pub(crate) mod test_support;
