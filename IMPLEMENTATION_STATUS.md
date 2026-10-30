@@ -1,7 +1,7 @@
 # Implementation Status
 
-- Last updated: 2026-10-29
-- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S157)
+- Last updated: 2026-10-30
+- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S158)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -166,7 +166,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S154 | DONE | Packaged `native-host-registration.ps1 -Action Repair` deterministically recreates missing/corrupt Chrome, Edge, and Firefox manifests, current-user registrations, and onboarding state; the isolated installer smoke seeds mixed failures and verifies repaired three-browser health exchanges. |
 | S155 | DONE | Packaged `uninstall.ps1` requires an explicit keep/remove choice for history, settings, and partials; both paths remove the exact app files, shortcut, onboarding state, manifests, and Chrome/Edge/Firefox registrations while preserving unrelated registrations and completed downloads; the isolated installer smoke verifies both choices. |
 | S156 | DONE | Engine `update_verification::tests` use a deterministic test-only Ed25519 key to verify exact signed metadata, strict stable/x86_64/versioned artifact identity, and streamed SHA-256/size checks; wrong keys, invalid signatures, tampered metadata, modified/truncated artifacts, and signed unsafe metadata are rejected, and all fast verification gates pass. |
-| S157 | TODO | — |
+| S157 | DONE | Engine `update_staging::tests` force-kill a child after its first staged chunk, then prove fresh-store recovery removes only the bounded incomplete transaction and launches the byte-exact old application; ready updates persist the exact S156 metadata/signature, reauthenticate and rehash on recovery, reject coordinated artifact/metadata replacement, and preserve malformed or oversized pending evidence; all fast verification gates pass. |
 | S158 | TODO | — |
 | S159 | TODO | — |
 | S160 | TODO | — |

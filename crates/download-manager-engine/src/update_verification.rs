@@ -43,6 +43,8 @@ pub struct VerifiedUpdate {
     artifact_path: PathBuf,
     artifact_size: u64,
     artifact_sha256: [u8; 32],
+    authenticated_metadata: Vec<u8>,
+    metadata_signature: [u8; 64],
 }
 
 impl VerifiedUpdate {
@@ -64,6 +66,14 @@ impl VerifiedUpdate {
     #[must_use]
     pub const fn artifact_sha256(&self) -> &[u8; 32] {
         &self.artifact_sha256
+    }
+
+    pub(crate) fn authenticated_metadata(&self) -> &[u8] {
+        &self.authenticated_metadata
+    }
+
+    pub(crate) const fn metadata_signature(&self) -> &[u8; 64] {
+        &self.metadata_signature
     }
 }
 
@@ -122,6 +132,25 @@ impl UpdateVerifier {
         signature_bytes: &[u8],
         artifact_path: &Path,
     ) -> Result<VerifiedUpdate, UpdateVerificationError> {
+        self.verify_artifact(metadata_bytes, signature_bytes, artifact_path, true)
+    }
+
+    pub(crate) fn verify_staged(
+        &self,
+        metadata_bytes: &[u8],
+        signature_bytes: &[u8],
+        artifact_path: &Path,
+    ) -> Result<VerifiedUpdate, UpdateVerificationError> {
+        self.verify_artifact(metadata_bytes, signature_bytes, artifact_path, false)
+    }
+
+    fn verify_artifact(
+        &self,
+        metadata_bytes: &[u8],
+        signature_bytes: &[u8],
+        artifact_path: &Path,
+        require_release_file_name: bool,
+    ) -> Result<VerifiedUpdate, UpdateVerificationError> {
         if metadata_bytes.len() > MAX_UPDATE_METADATA_BYTES {
             return Err(UpdateVerificationError::MetadataTooLarge {
                 actual: metadata_bytes.len(),
@@ -135,7 +164,8 @@ impl UpdateVerifier {
             .map_err(|_| UpdateVerificationError::UntrustedSignature)?;
 
         let metadata: UpdateMetadata = serde_json::from_slice(metadata_bytes)?;
-        let (version, expected_hash) = validate_metadata(&metadata, artifact_path)?;
+        let (version, expected_hash) =
+            validate_metadata(&metadata, artifact_path, require_release_file_name)?;
         let (actual_size, actual_hash) = hash_artifact(artifact_path)?;
         if actual_size != metadata.artifact.size {
             return Err(UpdateVerificationError::ArtifactSizeMismatch {
@@ -152,6 +182,8 @@ impl UpdateVerifier {
             artifact_path: artifact_path.to_path_buf(),
             artifact_size: actual_size,
             artifact_sha256: actual_hash,
+            authenticated_metadata: metadata_bytes.to_vec(),
+            metadata_signature: signature.to_bytes(),
         })
     }
 }
@@ -159,6 +191,7 @@ impl UpdateVerifier {
 fn validate_metadata(
     metadata: &UpdateMetadata,
     artifact_path: &Path,
+    require_release_file_name: bool,
 ) -> Result<(Version, [u8; 32]), UpdateVerificationError> {
     if metadata.schema_version != UPDATE_METADATA_SCHEMA_VERSION {
         return Err(UpdateVerificationError::UnsupportedSchema {
@@ -181,8 +214,9 @@ fn validate_metadata(
     if metadata.artifact.file_name != expected_name
         || metadata.artifact.file_name.is_empty()
         || metadata.artifact.file_name.len() > MAX_ARTIFACT_NAME_BYTES
-        || artifact_path.file_name().and_then(|name| name.to_str())
-            != Some(metadata.artifact.file_name.as_str())
+        || (require_release_file_name
+            && artifact_path.file_name().and_then(|name| name.to_str())
+                != Some(metadata.artifact.file_name.as_str()))
     {
         return Err(UpdateVerificationError::InvalidMetadata(
             "artifact file name",
