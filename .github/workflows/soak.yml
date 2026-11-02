@@ -1,0 +1,70 @@
+name: Release candidate soak
+
+on:
+  schedule:
+    - cron: "17 1 * * 6"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Soak duration profile
+        required: true
+        default: validation
+        type: choice
+        options:
+          - validation
+          - release_24h
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-candidate-soak
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Validate soak contract
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Prove failure detection and healthy default
+        run: node scripts/soak-contract.test.mjs
+
+  soak:
+    name: ${{ github.event_name == 'schedule' && '24-hour soak' || format('{0} soak', inputs.profile) }}
+    needs: contract
+    runs-on: ${{ (github.event_name == 'schedule' || inputs.profile == 'release_24h') && fromJSON('["self-hosted","windows","x64","release-soak"]') || 'windows-latest' }}
+    timeout-minutes: 1500
+    env:
+      SOAK_PROFILE: ${{ github.event_name == 'schedule' && 'release_24h' || inputs.profile }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Run bounded soak
+        shell: pwsh
+        run: node scripts/soak.mjs --profile $env:SOAK_PROFILE --output test-results/soak-result.json
+      - name: Upload immutable soak result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: soak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/soak-result.json
+          if-no-files-found: error
+          retention-days: 30
