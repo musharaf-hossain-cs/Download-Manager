@@ -53,3 +53,22 @@ Command arguments are passed directly without shell evaluation. The runner repla
 `{output}`, `{pair}`, and `{seed}`. The same expanded URL is used for both sides of a pair, so a
 fixture can implement deterministic cache busting while preserving paired conditions. Benchmark
 outputs are deleted after their size and SHA-256 are recorded unless `retain_outputs` is true.
+
+## Controlled LAN scenarios
+
+HTTP/1.1 and HTTP/2 controlled-LAN reports are accepted only when they contain at least 10 paired
+runs and every baseline/candidate output has the same non-empty length and SHA-256. The committed
+integration fixtures force the selected protocol, issue `Range: bytes=0-`, and use one cache-busted
+URL for both sides of each pair. The HTTP/2 fixture uses cleartext prior knowledge (h2c) so protocol
+behavior can be verified without trusting a test certificate.
+
+Run the focused scenario checks with:
+
+```powershell
+cargo test --locked -p download-manager-engine --test http1_lan_s163
+cargo test --locked -p download-manager-engine --test http2_lan_s164
+```
+
+The fixture clients prove the local transport and reporting contracts only. Release-lab plans use
+the same paired runner with the installed IDM and Download Manager wrapper commands, the controlled
+LAN server URL, and exact version-command output captured in the report.

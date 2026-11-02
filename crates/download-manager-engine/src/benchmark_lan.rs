@@ -6,11 +6,15 @@ use crate::benchmark_runner::PairedBenchmarkReport;
 
 pub const CONTROLLED_LAN_MINIMUM_PAIRS: usize = 10;
 pub const HTTP_1_1_PROTOCOL: &str = "HTTP/1.1";
+pub const HTTP_2_PROTOCOL: &str = "HTTP/2";
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ControlledLanReportError {
-    #[error("controlled HTTP/1.1 report used protocol {actual:?}")]
-    WrongProtocol { actual: String },
+    #[error("controlled LAN report used protocol {actual:?}, expected {expected}")]
+    WrongProtocol {
+        expected: &'static str,
+        actual: String,
+    },
     #[error("controlled LAN report requires at least 10 paired runs; found {actual}")]
     TooFewPairs { actual: usize },
     #[error("controlled LAN pair {pair} did not produce equal non-empty output hashes and lengths")]
@@ -27,8 +31,27 @@ pub enum ControlledLanReportError {
 pub fn validate_http1_lan_report(
     report: &PairedBenchmarkReport,
 ) -> Result<(), ControlledLanReportError> {
-    if report.protocol != HTTP_1_1_PROTOCOL {
+    validate_lan_report(report, HTTP_1_1_PROTOCOL)
+}
+
+/// Verifies the release evidence required from a controlled HTTP/2 LAN run.
+///
+/// # Errors
+/// Returns an error unless the report identifies HTTP/2, contains at least ten pairs, and every
+/// pair produced equal non-empty output bytes and SHA-256 values.
+pub fn validate_http2_lan_report(
+    report: &PairedBenchmarkReport,
+) -> Result<(), ControlledLanReportError> {
+    validate_lan_report(report, HTTP_2_PROTOCOL)
+}
+
+fn validate_lan_report(
+    report: &PairedBenchmarkReport,
+    expected_protocol: &'static str,
+) -> Result<(), ControlledLanReportError> {
+    if report.protocol != expected_protocol {
         return Err(ControlledLanReportError::WrongProtocol {
+            expected: expected_protocol,
             actual: report.protocol.clone(),
         });
     }
