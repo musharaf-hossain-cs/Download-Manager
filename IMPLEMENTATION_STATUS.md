@@ -1,7 +1,7 @@
 # Implementation Status
 
-- Last updated: 2026-10-30
-- Current milestone: Milestone 10 — Diagnostics, packaging and updates (next slice: S158)
+- Last updated: 2026-11-02
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S159)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -167,7 +167,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S155 | DONE | Packaged `uninstall.ps1` requires an explicit keep/remove choice for history, settings, and partials; both paths remove the exact app files, shortcut, onboarding state, manifests, and Chrome/Edge/Firefox registrations while preserving unrelated registrations and completed downloads; the isolated installer smoke verifies both choices. |
 | S156 | DONE | Engine `update_verification::tests` use a deterministic test-only Ed25519 key to verify exact signed metadata, strict stable/x86_64/versioned artifact identity, and streamed SHA-256/size checks; wrong keys, invalid signatures, tampered metadata, modified/truncated artifacts, and signed unsafe metadata are rejected, and all fast verification gates pass. |
 | S157 | DONE | Engine `update_staging::tests` force-kill a child after its first staged chunk, then prove fresh-store recovery removes only the bounded incomplete transaction and launches the byte-exact old application; ready updates persist the exact S156 metadata/signature, reauthenticate and rehash on recovery, reject coordinated artifact/metadata replacement, and preserve malformed or oversized pending evidence; all fast verification gates pass. |
-| S158 | TODO | — |
+| S158 | DONE | Engine `update_activation::tests` reauthenticate S157 pending bytes at the activation boundary, then use a SQLite-consistent atomic rollback swap to prove a forced post-switch health failure restores the byte-exact launchable old app, every paused job, request-context reference, named-queue order, segment/checkpoint offset, event, and untouched partial; the success path accepts a launchable candidate only after the same compatibility snapshot passes and clears pending state for the next update; all fast verification gates pass. |
 | S159 | TODO | — |
 | S160 | TODO | — |
 | S161 | TODO | — |

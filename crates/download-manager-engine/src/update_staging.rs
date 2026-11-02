@@ -14,6 +14,7 @@ use crate::update_verification::{UpdateVerificationError, UpdateVerifier, Verifi
 
 const STAGING_DIRECTORY: &str = ".staging";
 const PENDING_DIRECTORY: &str = "pending";
+const COMPLETED_DIRECTORY: &str = ".completed";
 const ARTIFACT_FILE: &str = "artifact.zip";
 const TEMP_ARTIFACT_FILE: &str = "artifact.tmp";
 const METADATA_FILE: &str = "metadata.json";
@@ -135,6 +136,11 @@ impl UpdateStageStore {
         verifier: &UpdateVerifier,
     ) -> Result<Option<StagedUpdate>, UpdateStageError> {
         self.validate_root()?;
+        if fs::symlink_metadata(self.root.join(COMPLETED_DIRECTORY)).is_ok() {
+            return Err(UpdateStageError::InvalidAuthenticatedState(
+                "activation outcome",
+            ));
+        }
         let staging = self.root.join(STAGING_DIRECTORY);
         if staging.exists() {
             remove_incomplete_staging(&staging)?;
@@ -148,12 +154,73 @@ impl UpdateStageStore {
         }
     }
 
+    pub(crate) fn prepare_completion(
+        &self,
+        activated: &StagedUpdate,
+    ) -> Result<StagedUpdate, UpdateStageError> {
+        self.validate_root()?;
+        if fs::symlink_metadata(self.root.join(COMPLETED_DIRECTORY)).is_ok() {
+            return Err(UpdateStageError::InvalidAuthenticatedState(
+                "activation outcome",
+            ));
+        }
+        let pending = self.root.join(PENDING_DIRECTORY);
+        validate_directory(
+            &pending,
+            "pending directory",
+            &[ARTIFACT_FILE, METADATA_FILE, SIGNATURE_FILE],
+        )?;
+        if fs::canonicalize(pending.join(ARTIFACT_FILE))?
+            != fs::canonicalize(activated.artifact_path())?
+        {
+            return Err(UpdateStageError::InvalidAuthenticatedState(
+                "activation token",
+            ));
+        }
+        let completed = self.root.join(COMPLETED_DIRECTORY);
+        fs::rename(pending, &completed)?;
+        Ok(StagedUpdate {
+            version: activated.version.clone(),
+            artifact_path: completed.join(ARTIFACT_FILE),
+            artifact_size: activated.artifact_size,
+            artifact_sha256: activated.artifact_sha256,
+        })
+    }
+
+    pub(crate) fn cancel_completion(
+        &self,
+        completing: &StagedUpdate,
+    ) -> Result<(), UpdateStageError> {
+        self.validate_root()?;
+        let completed = self.root.join(COMPLETED_DIRECTORY);
+        validate_completion_token(&completed, completing)?;
+        let pending = self.root.join(PENDING_DIRECTORY);
+        if pending.exists() {
+            return Err(UpdateStageError::PendingExists);
+        }
+        fs::rename(completed, pending)?;
+        Ok(())
+    }
+
+    pub(crate) fn finish_completion(
+        &self,
+        completing: &StagedUpdate,
+    ) -> Result<(), UpdateStageError> {
+        self.validate_root()?;
+        let completed = self.root.join(COMPLETED_DIRECTORY);
+        validate_completion_token(&completed, completing)?;
+        remove_completed(&completed)
+    }
+
     fn stage_from_reader(
         &self,
         verified: &VerifiedUpdate,
         mut source: impl Read,
     ) -> Result<StagedUpdate, UpdateStageError> {
         self.validate_root()?;
+        if fs::symlink_metadata(self.root.join(COMPLETED_DIRECTORY)).is_ok() {
+            return Err(UpdateStageError::PendingExists);
+        }
         let staging = self.root.join(STAGING_DIRECTORY);
         if staging.exists() {
             remove_incomplete_staging(&staging)?;
@@ -299,6 +366,41 @@ fn remove_incomplete_staging(staging: &Path) -> Result<(), UpdateStageError> {
     Ok(())
 }
 
+fn remove_completed(completed: &Path) -> Result<(), UpdateStageError> {
+    validate_directory(
+        completed,
+        "completed directory",
+        &[ARTIFACT_FILE, METADATA_FILE, SIGNATURE_FILE],
+    )?;
+    for name in [ARTIFACT_FILE, METADATA_FILE, SIGNATURE_FILE] {
+        let path = completed.join(name);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+    }
+    fs::remove_dir(completed)?;
+    Ok(())
+}
+
+fn validate_completion_token(
+    completed: &Path,
+    completing: &StagedUpdate,
+) -> Result<(), UpdateStageError> {
+    validate_directory(
+        completed,
+        "completed directory",
+        &[ARTIFACT_FILE, METADATA_FILE, SIGNATURE_FILE],
+    )?;
+    if fs::canonicalize(completed.join(ARTIFACT_FILE))?
+        != fs::canonicalize(completing.artifact_path())?
+    {
+        return Err(UpdateStageError::InvalidAuthenticatedState(
+            "completion token",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_directory(
     path: &Path,
     location: &'static str,
@@ -342,8 +444,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        MAX_METADATA_BYTES, METADATA_FILE, PENDING_DIRECTORY, SIGNATURE_FILE, STAGING_DIRECTORY,
-        TEMP_ARTIFACT_FILE, UpdateStageError, UpdateStageStore,
+        COMPLETED_DIRECTORY, MAX_METADATA_BYTES, METADATA_FILE, PENDING_DIRECTORY, SIGNATURE_FILE,
+        STAGING_DIRECTORY, TEMP_ARTIFACT_FILE, UpdateStageError, UpdateStageStore,
     };
     use crate::update_verification::{UpdateVerificationError, UpdateVerifier, VerifiedUpdate};
 
@@ -546,6 +648,30 @@ mod tests {
             restarted.stage(&fixture.verified),
             Err(UpdateStageError::PendingExists)
         ));
+    }
+
+    #[test]
+    fn unresolved_completion_marker_is_preserved_for_fault_reconciliation() {
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let staged = store.stage(&fixture.verified).expect("stage update");
+        let completing = store
+            .prepare_completion(&staged)
+            .expect("prepare completion marker");
+
+        assert!(matches!(
+            store.recover(&fixture.verifier),
+            Err(UpdateStageError::InvalidAuthenticatedState(
+                "activation outcome"
+            ))
+        ));
+        assert!(completing.artifact_path().is_file());
+        assert!(store.root.join(COMPLETED_DIRECTORY).is_dir());
+
+        store
+            .cancel_completion(&completing)
+            .expect("restore pending marker");
+        assert!(store.recover(&fixture.verifier).expect("recover").is_some());
     }
 
     #[test]
