@@ -1,4 +1,5 @@
 * text=auto
+.gitattributes text eol=lf
 *.md text eol=lf
 *.rs text eol=lf
 *.toml text eol=lf
@@ -10,3 +11,7 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.ps1 text eol=crlf
+
+# Hash-addressed media corpus bytes must be identical on every checkout.
+crates/download-manager-engine/tests/fixtures/s173/** -text
+crates/download-manager-engine/tests/fixtures/media_s174/** -text

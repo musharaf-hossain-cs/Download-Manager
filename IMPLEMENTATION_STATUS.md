@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-03
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S173)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S177)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -182,10 +182,10 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S170 | DONE | The Chrome/Edge 154–156 matrix runs 24 capture, context-menu, and overlay adapter-contract scenarios, records exact current-stable release metadata as of 2026-11-02, and writes deterministic `chromium-supported-version-regression.json` evidence only after the focused suite passes; the artifact explicitly records that browser binaries were not launched, and all 129 extension plus 99 desktop TypeScript tests pass. |
 | S171 | DONE | `pnpm test:firefox-regression` runs the established shared handoff, fallback, capture-rule/modifier, and menu contracts for Firefox 159 stable and ESR 153.6, then writes a dated deterministic `firefox-stable-esr-regression.json` report that explicitly records no installed-browser execution; Firefox lint/build and all fast TypeScript gates pass. |
 | S172 | DONE | `pnpm test:chromium-p1-regression` runs the shared Chromium capture, context-menu, and overlay contracts for Brave 1.98.63 and Opera 139.0.6053.15 current stable, writes deterministic `chromium-p1-regression.json` evidence with the store/policy condition and no installed-browser claim, and records no isolated continuations; all fast TypeScript gates pass. |
-| S173 | TODO | — |
-| S174 | TODO | — |
-| S175 | TODO | — |
-| S176 | TODO | — |
+| S173 | DONE | `licensed_progressive_and_hls_corpus_has_stable_hashes_and_probe_results` transfers the CC0 progressive/HLS TS/fMP4 corpus through the real download paths, verifies fixed input/output SHA-256 values and segment/init ordering, and enforces bounded ffprobe codec, duration, and A/V sync assertions; focused test and strict Clippy pass. |
+| S174 | DONE | `licensed_corpus_hashes_dash_subtitles_and_av_sync_are_stable` and `licensed_clear_live_corpus_deduplicates_gaps_and_stops_at_complete_duration` verify the CC0 inventory hashes, static DASH track duration, WebVTT/TTML timing, ffprobe A/V sync, clear-live overlap/gap handling, complete-segment duration stop, and exact output hash; focused tests and strict Clippy pass. |
+| S175 | DONE | `fifty_seeded_process_worker_network_faults_never_mark_corrupt_output_complete` executes 50 deterministic process-kill, media-worker-crash, and network-route-loss runs; every claimed completion matches the expected SHA-256, while failed workers preserve input and expose no output; focused test and strict Clippy pass. |
+| S176 | DONE | `fifty_seeded_disk_db_and_update_interruptions_preserve_invariants` executes 50 deterministic runs across disk-full/access failures, interrupted SQLite transactions, incomplete/authenticated update staging, and unresolved activation markers; exact safe prefixes, atomic rollback, authenticated evidence, fail-closed markers, and the old application hash remain invariant; focused test and strict Clippy pass. |
 | S177 | TODO | — |
 | S178 | TODO | — |
 | S179 | TODO | — |

@@ -1,0 +1,10 @@
+SPDX-License-Identifier: CC0-1.0
+
+To the extent possible under law, the authors have dedicated every synthetic
+manifest, subtitle, metadata document, and media-fragment byte sequence in this
+directory to the public domain under CC0 1.0 Universal.
+
+These fixtures were created for the Download Manager regression suite. They do
+not contain third-party audiovisual material, encryption data, or service
+credentials. A copy of the CC0 1.0 legal code is available at:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode

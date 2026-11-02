@@ -1,0 +1,21 @@
+{
+  "streams": [
+    {
+      "codec_type": "video",
+      "codec_name": "h264",
+      "start_time": "0.000000",
+      "duration": "4.000000"
+    },
+    {
+      "codec_type": "audio",
+      "codec_name": "aac",
+      "start_time": "0.021000",
+      "duration": "3.979000"
+    }
+  ],
+  "format": {
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "start_time": "0.000000",
+    "duration": "4.000000"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "name": "S174 synthetic DASH, subtitle, and clear-live corpus",
+  "license_file": "LICENSE.txt",
+  "artifacts": [
+    {
+      "path": "static-av-subtitles.mpd",
+      "sha256": "7491429d6d4927e3e10bc962eb70d6e8c96d54fbe67a7ab489bfc9116acba311",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "captions-en.vtt",
+      "sha256": "c1be87bc863ee08a6cfdeac0814093abf712e7e52647a56f402dc51ed403017c",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "captions-bn.ttml",
+      "sha256": "4272656efa03fad7d0b866bfdf146e23fb9ca604a9687ceaa2f76730bdcb3e50",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "dash-ffprobe.json",
+      "sha256": "93f75c3c8e3e349fd772cd95a9079f18a758ef6b7f6e44aeaa01b81f0cb258bd",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "live-ffprobe.json",
+      "sha256": "9d45961c89b23d7ed1235b93532e8a95856d7c28b313b851fe87948852ad5ca7",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "live-window-early.m3u8",
+      "sha256": "b42b033568a8235613c335c75e554a04653d83c465de6d9931c4608fe1e5cde8",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "live-window-overlap.m3u8",
+      "sha256": "02295f5a90fc743dce81efd5b8122b58a0e8320255408bd9ab5f5f52479fb4a1",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "live-window-late.m3u8",
+      "sha256": "547b1931bebf911b657d2756b71995cdecb3edaf0a2ee052748cb02c331f2da4",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "segment-040.bin",
+      "sha256": "21b0dcbc1c6f319a2e4487151525d6c48025d94c729192617ebb7a1b133e94a3",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "segment-041.bin",
+      "sha256": "770a969ab8c2c924551b4ec772ed3f93a77f26b0d52a36d040dc1a3d652bf464",
+      "spdx": "CC0-1.0"
+    },
+    {
+      "path": "segment-043.bin",
+      "sha256": "9270eca3fe32a219d58e000662c40603ef57d49bcd7b6237341a7451fa582c5c",
+      "spdx": "CC0-1.0"
+    }
+  ]
+}
