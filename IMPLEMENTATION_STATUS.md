@@ -1,7 +1,7 @@
 # Implementation Status
 
-- Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S171)
+- Last updated: 2026-11-03
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S173)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -180,8 +180,8 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S168 | DONE | `severe_wan_reports_paired_adaptive_backoff_and_recovery` completes 10 randomized pairs and 20 real 180 ms delayed, chunk-throttled HTTP transfers, verifies hashes and cache-busted pairing, and reports 1% loss/throttle controller pressure, retry/wire overhead, multiplicative backoff, cooldown, and recovery for every pair; the negative trace gate, focused tests, and strict clippy pass. |
 | S169 | DONE | `fixed_receive_polling_regression_is_measured_fixed_and_fair` runs 10 randomized before/after pairs at 80 ms RTT, measures a 221.14% median goodput improvement after removing the fixed 20 ms receive sleep, verifies equal lengths/SHA-256 values, and emits JSON/Markdown evidence; the fairness suite preserves 4:2:1 service, bounds the low-priority gap at 6, covers equal-priority and pause/resume pressure, and all Rust workspace gates pass. |
 | S170 | DONE | The Chrome/Edge 154–156 matrix runs 24 capture, context-menu, and overlay adapter-contract scenarios, records exact current-stable release metadata as of 2026-11-02, and writes deterministic `chromium-supported-version-regression.json` evidence only after the focused suite passes; the artifact explicitly records that browser binaries were not launched, and all 129 extension plus 99 desktop TypeScript tests pass. |
-| S171 | TODO | — |
-| S172 | TODO | — |
+| S171 | DONE | `pnpm test:firefox-regression` runs the established shared handoff, fallback, capture-rule/modifier, and menu contracts for Firefox 159 stable and ESR 153.6, then writes a dated deterministic `firefox-stable-esr-regression.json` report that explicitly records no installed-browser execution; Firefox lint/build and all fast TypeScript gates pass. |
+| S172 | DONE | `pnpm test:chromium-p1-regression` runs the shared Chromium capture, context-menu, and overlay contracts for Brave 1.98.63 and Opera 139.0.6053.15 current stable, writes deterministic `chromium-p1-regression.json` evidence with the store/policy condition and no installed-browser claim, and records no isolated continuations; all fast TypeScript gates pass. |
 | S173 | TODO | — |
 | S174 | TODO | — |
 | S175 | TODO | — |

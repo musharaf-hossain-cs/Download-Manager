@@ -16,6 +16,8 @@
     "lint": "eslint .",
     "test": "pnpm --recursive test",
     "test:browser-regression": "node scripts/browser-regression.mjs",
+    "test:chromium-p1-regression": "node scripts/chromium-p1-regression.mjs",
+    "test:firefox-regression": "node scripts/firefox-regression.mjs",
     "typecheck": "pnpm --recursive typecheck",
     "verify:docs": "node scripts/verify-markdown.mjs",
     "verify:status": "node scripts/verify-status.mjs",
