@@ -16,6 +16,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{HttpUrl, RangeCapability, RemoteIdentity},
+    http_range::parse_content_range,
     probe::{HttpProbe, ProbeError},
     transfer::{TransferOutcome, TransferProgress},
 };
@@ -175,23 +176,7 @@ where
 }
 
 fn valid_content_range(value: &str, offset: u64, total: Option<u64>) -> bool {
-    let Some(value) = value.strip_prefix("bytes ") else {
-        return false;
-    };
-    let Some((range, represented_total)) = value.split_once('/') else {
-        return false;
-    };
-    let Some((start, end)) = range.split_once('-') else {
-        return false;
-    };
-    let Ok(start) = start.parse::<u64>() else {
-        return false;
-    };
-    let Ok(end) = end.parse::<u64>() else {
-        return false;
-    };
-    let parsed_total = represented_total.parse::<u64>().ok();
-    start == offset && start <= end && total.is_none_or(|expected| parsed_total == Some(expected))
+    parse_content_range(value).is_some_and(|range| range.matches_resume(offset, total))
 }
 
 fn hash_file(path: &Path) -> Result<String, std::io::Error> {

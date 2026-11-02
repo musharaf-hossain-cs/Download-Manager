@@ -15,6 +15,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{HttpUrl, JobId, UnixMillis},
+    http_range::parse_content_range,
     storage::{Database, StorageError},
     transfer::{SingleStreamDownloader, TransferError},
 };
@@ -319,19 +320,7 @@ fn download_range(
 }
 
 fn content_range_matches(value: &str, expected: ByteRange) -> bool {
-    let Some(value) = value.strip_prefix("bytes ") else {
-        return false;
-    };
-    let Some((bounds, total)) = value.split_once('/') else {
-        return false;
-    };
-    if total != "*" && total.parse::<u64>().is_err() {
-        return false;
-    }
-    let Some((start, end)) = bounds.split_once('-') else {
-        return false;
-    };
-    start.parse::<u64>() == Ok(expected.start) && end.parse::<u64>() == Ok(expected.end)
+    parse_content_range(value).is_some_and(|range| range.matches(expected.start, expected.end))
 }
 
 fn download_ranges(

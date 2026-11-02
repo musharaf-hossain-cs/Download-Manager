@@ -13,7 +13,10 @@ use reqwest::{
 };
 use thiserror::Error;
 
-use crate::domain::{HttpUrl, RangeCapability, RemoteIdentity, ValidationError};
+use crate::{
+    domain::{HttpUrl, RangeCapability, RemoteIdentity, ValidationError},
+    http_range::parse_content_range,
+};
 
 const MAX_REDIRECTS: usize = 10;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -163,10 +166,8 @@ fn parse_u64_header(headers: &HeaderMap, name: reqwest::header::HeaderName) -> O
 }
 
 fn content_range_length(value: &str) -> Result<u64, ProbeError> {
-    value
-        .split_once('/')
-        .and_then(|(_, length)| (length != "*").then_some(length))
-        .and_then(|length| length.parse().ok())
+    parse_content_range(value)
+        .and_then(super::http_range::ContentRange::complete_length)
         .ok_or_else(|| ProbeError::InvalidContentRange(value.to_owned()))
 }
 

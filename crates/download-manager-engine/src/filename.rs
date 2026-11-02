@@ -45,13 +45,14 @@ pub fn sanitize_windows_filename(input: &str) -> String {
         sanitized = sanitized.replace("..", "__");
     }
     sanitized = sanitized.trim().trim_end_matches(['.', ' ']).to_owned();
+    truncate_chars(&mut sanitized, MAX_FILENAME_CHARS);
+    sanitized = sanitized.trim_end_matches(['.', ' ']).to_owned();
     if sanitized.is_empty() {
         sanitized.push_str(DEFAULT_FILENAME);
     }
     if is_windows_device_name(&sanitized) {
         sanitized.insert(0, '_');
     }
-    truncate_chars(&mut sanitized, MAX_FILENAME_CHARS);
     sanitized
 }
 
@@ -266,5 +267,7 @@ mod tests {
         let sanitized = sanitize_windows_filename(&value);
         assert_eq!(sanitized.chars().count(), 240);
         assert!(sanitized.is_char_boundary(sanitized.len()));
+        let truncates_to_trailing_dot = format!("{}{}", "x".repeat(239), ".suffix");
+        assert!(!sanitize_windows_filename(&truncates_to_trailing_dot).ends_with('.'));
     }
 }
