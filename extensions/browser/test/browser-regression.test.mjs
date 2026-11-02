@@ -8,6 +8,7 @@ import {
   FirefoxBrowserBehavior,
   FirefoxLinkInterception,
   LinkHandoffController,
+  MediaOverlayInteractionController,
   SINGLE_LINK_CONTEXT_MENU_ID,
   collectAllLinks,
   collectSelectedLinks,
@@ -19,8 +20,12 @@ import {
 import {
   BROWSER_REGRESSION_MATRIX,
   BROWSER_REGRESSION_SCENARIOS,
+  CHROMIUM_SUPPORTED_VERSION_MATRIX,
+  CHROMIUM_SUPPORTED_VERSION_SCENARIOS,
   createBrowserRegressionReport,
+  createChromiumSupportedVersionReport,
   serializeBrowserRegressionReport,
+  serializeChromiumSupportedVersionReport,
 } from "../../../scripts/browser-regression.mjs";
 
 const requestId = "018f47ce-8e51-7f31-a1ec-4a97f84a12cd";
@@ -317,6 +322,30 @@ async function menuRequests(variant) {
   ];
 }
 
+async function overlayPreferenceContract() {
+  const saved = [];
+  const controller = new MediaOverlayInteractionController(
+    {},
+    { save: async (snapshot) => saved.push(snapshot) },
+  );
+  const site = "https://watch.example.test/episode/one";
+  await controller.setSiteEnabled(site, false);
+  const disabled = controller.isEnabled(site);
+  await controller.setSiteEnabled(site, true);
+  await controller.setMinimized(site, true);
+  await controller.move(
+    site,
+    { x: -20, y: 200 },
+    { x: 8, y: 8, width: 120, height: 80 },
+  );
+  return {
+    disabled,
+    enabled: controller.isEnabled(site),
+    state: controller.stateFor(site),
+    saves: saved.length,
+  };
+}
+
 describe("cross-browser adapter fixture matrix", () => {
   for (const variant of BROWSER_REGRESSION_MATRIX) {
     const label = `${variant.browser}-${variant.channel}`;
@@ -418,6 +447,100 @@ describe("cross-browser adapter fixture matrix", () => {
         { browser: "edge", channel: "stable", adapter: "chromium" },
         { browser: "firefox", channel: "stable", adapter: "firefox" },
         { browser: "firefox", channel: "esr", adapter: "firefox" },
+      ],
+    });
+  });
+});
+
+describe("Chrome and Edge supported-version adapter fixture", () => {
+  for (const variant of CHROMIUM_SUPPORTED_VERSION_MATRIX) {
+    const label = `${variant.browser}-${String(variant.major)}-${variant.supportTier}`;
+
+    it(`${label} preserves acknowledged capture and offline fallback`, async () => {
+      const acceptedResult = await acceptedHandoff(variant);
+      expect(acceptedResult).toEqual({
+        result: { kind: "accepted", jobId },
+        duplicate: { kind: "ignored", reason: "duplicate" },
+        events: ["native:send", "cancel:42"],
+        sends: 1,
+      });
+      const fallbackResult = await offlineFallback(variant);
+      expect(fallbackResult.result).toEqual({
+        kind: "fallback",
+        reason: "native_unavailable",
+      });
+      expect(fallbackResult.fallbacks).toEqual([fallbackResult.originalUrl]);
+      expect(fallbackResult.cancelled).toEqual([]);
+    });
+
+    it(`${label} applies capture rules and conflict-safe modifiers`, () => {
+      const allowed = {
+        url: "https://cdn.example.test/archive.zip",
+        suggestedFilename: "archive.zip",
+        mimeType: "application/zip",
+        sizeBytes: 4_096,
+      };
+      const denied = { ...allowed, url: "https://blocked.test/readme.txt" };
+      expect(captureDecision(variant, allowed, none)).toBe(true);
+      expect(captureDecision(variant, denied, none)).toBe(false);
+      expect(captureDecision(variant, denied, { ...none, ctrlKey: true })).toBe(
+        true,
+      );
+      expect(captureDecision(variant, allowed, { ...none, altKey: true })).toBe(
+        false,
+      );
+      expect(
+        captureDecision(variant, allowed, {
+          ...none,
+          altKey: true,
+          ctrlKey: true,
+        }),
+      ).toBe(false);
+    });
+
+    it(`${label} normalizes single, all, and selected context actions`, async () => {
+      const requests = await menuRequests(variant);
+      expect(requests.map((request) => request.type)).toEqual([
+        "add_download",
+        "add_batch",
+        "add_batch",
+      ]);
+      expect(requests.map((request) => request.items?.length ?? 1)).toEqual([
+        1, 2, 1,
+      ]);
+    });
+
+    it(`${label} preserves site overlay enablement and bounded position`, async () => {
+      await expect(overlayPreferenceContract()).resolves.toEqual({
+        disabled: false,
+        enabled: true,
+        state: { minimized: true, position: { x: 8, y: 88 } },
+        saves: 4,
+      });
+    });
+  }
+
+  it("serializes an exact, explicitly fixture-scoped S170 artifact", () => {
+    expect(CHROMIUM_SUPPORTED_VERSION_SCENARIOS).toHaveLength(4);
+    expect(serializeChromiumSupportedVersionReport()).toBe(
+      serializeChromiumSupportedVersionReport(),
+    );
+    expect(createChromiumSupportedVersionReport()).toMatchObject({
+      schema_version: 1,
+      scope: "chromium_supported_version_adapter_fixture",
+      requirement: "BROW-01",
+      as_of: "2026-11-02",
+      coverage: {
+        execution: "deterministic_adapter_contract",
+        browser_binaries_launched: false,
+      },
+      browsers: [
+        { browser: "chrome", major: 156, support_tier: "current_stable" },
+        { browser: "chrome", major: 155, support_tier: "previous_major_1" },
+        { browser: "chrome", major: 154, support_tier: "previous_major_2" },
+        { browser: "edge", major: 156, support_tier: "current_stable" },
+        { browser: "edge", major: 155, support_tier: "previous_major_1" },
+        { browser: "edge", major: 154, support_tier: "previous_major_2" },
       ],
     });
   });

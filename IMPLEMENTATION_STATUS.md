@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S170)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S171)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -179,7 +179,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S167 | DONE | `shaped_20_80ms_runs_report_paired_throughput_retries_and_wire_bytes` completes 10 randomized pairs at each 20/80 ms delayed profile, exercises a deterministic 503 retry, validates per-pair output hashes plus counter alignment, and emits stable JSON/Markdown goodput, retry, and wire-byte evidence; focused tests and strict clippy pass. |
 | S168 | DONE | `severe_wan_reports_paired_adaptive_backoff_and_recovery` completes 10 randomized pairs and 20 real 180 ms delayed, chunk-throttled HTTP transfers, verifies hashes and cache-busted pairing, and reports 1% loss/throttle controller pressure, retry/wire overhead, multiplicative backoff, cooldown, and recovery for every pair; the negative trace gate, focused tests, and strict clippy pass. |
 | S169 | DONE | `fixed_receive_polling_regression_is_measured_fixed_and_fair` runs 10 randomized before/after pairs at 80 ms RTT, measures a 221.14% median goodput improvement after removing the fixed 20 ms receive sleep, verifies equal lengths/SHA-256 values, and emits JSON/Markdown evidence; the fairness suite preserves 4:2:1 service, bounds the low-priority gap at 6, covers equal-priority and pause/resume pressure, and all Rust workspace gates pass. |
-| S170 | TODO | — |
+| S170 | DONE | The Chrome/Edge 154–156 matrix runs 24 capture, context-menu, and overlay adapter-contract scenarios, records exact current-stable release metadata as of 2026-11-02, and writes deterministic `chromium-supported-version-regression.json` evidence only after the focused suite passes; the artifact explicitly records that browser binaries were not launched, and all 129 extension plus 99 desktop TypeScript tests pass. |
 | S171 | TODO | — |
 | S172 | TODO | — |
 | S173 | TODO | — |
@@ -217,5 +217,5 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M3 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts; Gitleaks full-history scan | Passed: no known vulnerabilities or leaks; dependency sources/licenses accepted (duplicate-version policy warnings only). |
 | M4 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks, Rust format/clippy and 75 engine tests plus CLI/native-host tests, and TypeScript format/lint/build/typecheck with 76 desktop and 3 browser tests. |
 | M5 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks; Rust format/clippy plus 75 engine and 8 CLI/native-host tests (one helper ignored); TypeScript format/lint/build/typecheck plus 86 desktop and 51 browser-extension tests. |
-| M11 | Pinned MSVC `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace --locked`; `scripts/typescript-quality.ps1` | Passed: 4 focused LAN/WAN benchmark tests plus the complete Rust workspace and 203 TypeScript tests; measured correctness-preserving LAN fix, 20/80 ms counters, 180 ms adaptive evidence, and no warnings. |
+| M11 | Pinned MSVC `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace --locked`; `scripts/typescript-quality.ps1`; `pnpm test:browser-regression` | Passed: 7 LAN/WAN integration suites (9 tests), the complete Rust workspace, 129 extension tests, 99 desktop tests, and the 42-test browser regression command; measured correctness-preserving LAN/WAN fixes, shaped/adaptive evidence, and no warnings. |
 
