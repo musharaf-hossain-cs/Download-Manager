@@ -95,6 +95,28 @@ export interface KeyboardResult {
   readonly activatedId: string | null;
 }
 
+export interface WindowsScaleProfile {
+  readonly monitorId: string;
+  readonly workAreaWidthPixels: number;
+  readonly workAreaHeightPixels: number;
+  /** Windows DPI scaling percentage. The supported release range is 100–250%. */
+  readonly dpiPercent: number;
+  /** Windows accessibility text scaling percentage. */
+  readonly textPercent: number;
+}
+
+export interface ScaledDesktopLayout {
+  readonly monitorId: string;
+  readonly logicalWidth: number;
+  readonly logicalHeight: number;
+  readonly toolbarRows: number;
+  readonly visibleToolbarControls: number;
+  readonly overflowToolbarControls: number;
+  readonly minimumControlWidth: number;
+  readonly minimumControlHeight: number;
+  readonly downloadsHeight: number;
+}
+
 const HIGH_CONTRAST_STYLE: HighContrastStyle = Object.freeze({
   foreground: "CanvasText",
   background: "Canvas",
@@ -241,6 +263,84 @@ export class DesktopAccessibilityModel {
     this.#focusedId = focusable[targetIndex]?.id ?? null;
     return { focusedId: this.#focusedId, activatedId: null };
   }
+}
+
+/**
+ * Plans the renderer's responsive toolbar and downloads region in logical pixels.
+ * Controls wrap for at most two rows; remaining controls stay keyboard reachable
+ * in the toolbar overflow instead of being clipped at high DPI or text scaling.
+ */
+export function planScaledDesktopLayout(
+  profile: WindowsScaleProfile,
+  toolbarNames: readonly string[],
+): ScaledDesktopLayout {
+  if (
+    !Number.isFinite(profile.workAreaWidthPixels) ||
+    !Number.isFinite(profile.workAreaHeightPixels) ||
+    profile.workAreaWidthPixels <= 0 ||
+    profile.workAreaHeightPixels <= 0
+  ) {
+    throw new RangeError("monitor work area must be positive");
+  }
+  if (
+    !Number.isFinite(profile.dpiPercent) ||
+    profile.dpiPercent < 100 ||
+    profile.dpiPercent > 250
+  ) {
+    throw new RangeError("DPI scaling must be between 100 and 250 percent");
+  }
+  if (
+    !Number.isFinite(profile.textPercent) ||
+    profile.textPercent < 100 ||
+    profile.textPercent > 225
+  ) {
+    throw new RangeError("text scaling must be between 100 and 225 percent");
+  }
+  if (toolbarNames.some((name) => name.trim().length === 0)) {
+    throw new Error("toolbar controls need accessible names before layout");
+  }
+
+  const logicalWidth = Math.floor(
+    (profile.workAreaWidthPixels * 100) / profile.dpiPercent,
+  );
+  const logicalHeight = Math.floor(
+    (profile.workAreaHeightPixels * 100) / profile.dpiPercent,
+  );
+  const textScale = profile.textPercent / 100;
+  const longestLabel = toolbarNames.reduce(
+    (longest, name) =>
+      Array.from(name).length > Array.from(longest).length ? name : longest,
+    "",
+  );
+  const minimumControlWidth = Math.max(
+    44,
+    Math.ceil(Array.from(longestLabel).length * 8 * textScale + 32),
+  );
+  const minimumControlHeight = Math.max(44, Math.ceil(32 * textScale + 12));
+  const columns = Math.max(1, Math.floor(logicalWidth / minimumControlWidth));
+  const twoRowCapacity = columns * 2;
+  const visibleToolbarControls = Math.min(toolbarNames.length, twoRowCapacity);
+  const overflowToolbarControls = toolbarNames.length - visibleToolbarControls;
+  const toolbarRows =
+    visibleToolbarControls === 0
+      ? 0
+      : Math.min(2, Math.ceil(visibleToolbarControls / columns));
+  const downloadsHeight = Math.max(
+    0,
+    logicalHeight - toolbarRows * minimumControlHeight - 64,
+  );
+
+  return {
+    monitorId: profile.monitorId,
+    logicalWidth,
+    logicalHeight,
+    toolbarRows,
+    visibleToolbarControls,
+    overflowToolbarControls,
+    minimumControlWidth,
+    minimumControlHeight,
+    downloadsHeight,
+  };
 }
 
 function buildNodes(

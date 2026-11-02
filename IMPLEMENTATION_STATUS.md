@@ -188,7 +188,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S176 | DONE | `fifty_seeded_disk_db_and_update_interruptions_preserve_invariants` executes 50 deterministic runs across disk-full/access failures, interrupted SQLite transactions, incomplete/authenticated update staging, and unresolved activation markers; exact safe prefixes, atomic rollback, authenticated evidence, fail-closed markers, and the old application hash remain invariant; focused test and strict Clippy pass. |
 | S177 | DONE | The weekly `Release candidate soak` workflow schedules a 24-hour self-hosted run and exposes a 60-minute validation profile; `scripts/soak-contract.test.mjs` simulates all 10,000 mixed S175/S176 jobs, proves campaign failure and deadlock-timeout detection, and verifies the committed workflow has no injected failure. |
 | S178 | TODO | — |
-| S179 | TODO | — |
+| S179 | DONE | Desktop `release-accessibility-audit-s179.test.ts` passes English/Bangla semantic scans and the complete primary keyboard flow, preserves visible high-contrast focus and non-color state cues, and verifies 30% text expansion across 100–250% DPI, 100–225% text scaling, and multi-monitor transitions without losing controls or the download region. |
 | S180 | TODO | — |
 | S181 | TODO | — |
 | S182 | TODO | — |
