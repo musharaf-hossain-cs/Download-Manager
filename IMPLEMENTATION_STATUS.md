@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-03
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S178)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S180)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -187,7 +187,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S175 | DONE | `fifty_seeded_process_worker_network_faults_never_mark_corrupt_output_complete` executes 50 deterministic process-kill, media-worker-crash, and network-route-loss runs; every claimed completion matches the expected SHA-256, while failed workers preserve input and expose no output; focused test and strict Clippy pass. |
 | S176 | DONE | `fifty_seeded_disk_db_and_update_interruptions_preserve_invariants` executes 50 deterministic runs across disk-full/access failures, interrupted SQLite transactions, incomplete/authenticated update staging, and unresolved activation markers; exact safe prefixes, atomic rollback, authenticated evidence, fail-closed markers, and the old application hash remain invariant; focused test and strict Clippy pass. |
 | S177 | DONE | The weekly `Release candidate soak` workflow schedules a 24-hour self-hosted run and exposes a 60-minute validation profile; `scripts/soak-contract.test.mjs` simulates all 10,000 mixed S175/S176 jobs, proves campaign failure and deadlock-timeout detection, and verifies the committed workflow has no injected failure. |
-| S178 | TODO | — |
+| S178 | DONE | `docs/evidence/s178-validation-review.json` records a `pass` review bound to SHA-256 `5fa76f51203da2521584275c6a90b73cec24f8a323b031ff936125fc9f606d92`: the completed 60-minute local validation ran 200 alternating S175/S176 campaign entries, verified all 10,000 mixed jobs, and required no continuation. |
 | S179 | DONE | Desktop `release-accessibility-audit-s179.test.ts` passes English/Bangla semantic scans and the complete primary keyboard flow, preserves visible high-contrast focus and non-color state cues, and verifies 30% text expansion across 100–250% DPI, 100–225% text scaling, and multi-monitor transitions without losing controls or the download region. |
 | S180 | TODO | — |
 | S181 | TODO | — |

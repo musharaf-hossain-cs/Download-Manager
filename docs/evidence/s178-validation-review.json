@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "source_sha256": "5fa76f51203da2521584275c6a90b73cec24f8a323b031ff936125fc9f606d92",
+  "decision": "pass",
+  "source": {
+    "profile": "validation",
+    "status": "passed",
+    "started_at": "2026-11-02T20:43:34.538Z",
+    "finished_at": "2026-11-02T21:43:34.543Z",
+    "verified_mixed_jobs": 10000
+  },
+  "continuations": []
+}
