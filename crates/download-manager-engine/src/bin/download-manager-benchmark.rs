@@ -1,6 +1,9 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
-use download_manager_engine::benchmark_runner::{PairedBenchmarkPlan, run_paired_benchmark};
+use download_manager_engine::{
+    benchmark_lan::{NON_RANGE_SINGLE_STREAM_SCENARIO, build_non_range_single_stream_report},
+    benchmark_runner::{PairedBenchmarkPlan, run_paired_benchmark},
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -35,7 +38,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = json_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(json_path, serde_json::to_vec_pretty(&report)?)?;
-    fs::write(markdown_path, report.render_markdown())?;
+    if report.scenario == NON_RANGE_SINGLE_STREAM_SCENARIO {
+        let evidence = build_non_range_single_stream_report(&report)?;
+        fs::write(json_path, serde_json::to_vec_pretty(&evidence)?)?;
+        fs::write(markdown_path, evidence.render_markdown())?;
+    } else {
+        fs::write(json_path, serde_json::to_vec_pretty(&report)?)?;
+        fs::write(markdown_path, report.render_markdown())?;
+    }
     Ok(())
 }

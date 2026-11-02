@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S165)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S166)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -174,7 +174,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S162 | DONE | Engine `benchmark_runner` captures exact external application versions, uses a seeded balanced randomized A/B order and identical cache-busted source per pair, records elapsed time/bytes/SHA-256/goodput, and emits stable JSON/Markdown median, p10, p90, coefficient-of-variation, and paired-difference evidence; `small_ab_fixture_captures_versions_randomizes_order_and_reports_valid_statistics` passes. |
 | S163 | DONE | `controlled_http1_lan_runs_ten_pairs_with_hashes_and_reports` completes 10 randomized pairs and 20 real loopback HTTP/1.1 range transfers, verifies per-pair cache-busting symmetry plus equal non-empty lengths/SHA-256 values, and writes valid JSON/Markdown evidence; focused and full workspace tests pass. |
 | S164 | DONE | `controlled_http2_lan_runs_ten_pairs_with_hashes_and_reports` completes 10 randomized pairs and 20 real h2c loopback range transfers with forced HTTP/2, verifies per-pair cache-busting symmetry plus equal non-empty lengths/SHA-256 values, and writes valid JSON/Markdown evidence; focused and full workspace tests pass. |
-| S165 | TODO | — |
+| S165 | DONE | `non_range_single_stream_runs_ten_pairs_and_reports_reproducible_overhead` completes 10 randomized pairs and 20 real HTTP/1.1 `200 OK` transfers without `Range`, verifies cache-busting symmetry plus equal non-empty lengths/SHA-256 values, emits JSON/Markdown completion-time overhead evidence, and proves the exact 3% pass/fail boundary deterministically; all fast verification gates pass. |
 | S166 | TODO | — |
 | S167 | TODO | — |
 | S168 | TODO | — |

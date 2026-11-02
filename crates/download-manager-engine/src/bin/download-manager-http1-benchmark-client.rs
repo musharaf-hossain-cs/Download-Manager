@@ -1,6 +1,6 @@
 use std::{env, fs::File, process::ExitCode};
 
-use reqwest::{Version, blocking::Client, header};
+use reqwest::{StatusCode, Version, blocking::Client, header};
 
 fn main() -> ExitCode {
     match run() {
@@ -16,7 +16,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args_os().skip(1);
     let Some(command) = arguments.next() else {
         return Err(
-            "usage: download-manager-http1-benchmark-client --version | download <url> <output>"
+            "usage: download-manager-http1-benchmark-client --version | download|download-single-stream <url> <output>"
                 .into(),
         );
     };
@@ -30,9 +30,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    if command != "download" {
+    let send_range = if command == "download" {
+        true
+    } else if command == "download-single-stream" {
+        false
+    } else {
         return Err("unknown command".into());
-    }
+    };
     let url = arguments.next().ok_or("download requires a URL")?;
     let output = arguments.next().ok_or("download requires an output path")?;
     if arguments.next().is_some() {
@@ -40,10 +44,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let client = Client::builder().http1_only().build()?;
-    let mut response = client
-        .get(url.to_string_lossy().as_ref())
-        .header(header::RANGE, "bytes=0-")
-        .send()?;
+    let mut request = client.get(url.to_string_lossy().as_ref());
+    if send_range {
+        request = request.header(header::RANGE, "bytes=0-");
+    }
+    let mut response = request.send()?;
     if response.version() != Version::HTTP_11 {
         return Err(format!(
             "fixture negotiated {:?}, expected HTTP/1.1",
@@ -51,7 +56,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    if !response.status().is_success() {
+    if !send_range && response.status() != StatusCode::OK {
+        return Err(format!(
+            "single-stream fixture returned {}, expected 200 OK",
+            response.status()
+        )
+        .into());
+    }
+    if send_range && !response.status().is_success() {
         return Err(format!("fixture returned {}", response.status()).into());
     }
     let mut output = File::create(output)?;
