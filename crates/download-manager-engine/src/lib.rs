@@ -9,6 +9,7 @@ pub mod benchmark;
 pub mod benchmark_lan;
 pub mod benchmark_runner;
 pub mod benchmark_wan;
+pub mod benchmark_wan_regression;
 pub mod benchmark_wan_severe;
 pub mod checkpoint;
 pub mod credentials;

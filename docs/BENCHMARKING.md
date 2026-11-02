@@ -127,3 +127,19 @@ cargo test --locked -p download-manager-engine --test severe_wan_s168
 
 Both reports preserve the underlying paired result, exact shaping profile, complete counters or
 controller trace, output-hash verdict, and stable Markdown summary.
+
+## WAN regression profiling
+
+S169 preserves one measured 80 ms RTT receive-loop regression: sleeping for a fixed 20 ms after
+every 8 KiB read. The paired fixture compares that behavior with readiness-driven blocking reads,
+records the before/after median goodput for ten randomized pairs, and verifies equal lengths and
+SHA-256 values. Its acceptance gate also runs the high/normal/low scheduler under sustained demand;
+the report is rejected unless service remains 4:2:1 and the low-priority gap stays bounded.
+
+```powershell
+cargo test --locked -p download-manager-engine --test wan_regression_s169
+```
+
+The committed fixture establishes a deterministic profile-and-fix plus fairness contract. The
+release-lab run must use the installed product wrapper and controlled network shaper to confirm the
+same regression is absent in the packaged transfer path.

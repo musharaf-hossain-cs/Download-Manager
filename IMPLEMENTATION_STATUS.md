@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S169)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S170)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -178,7 +178,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S166 | DONE | `per_chunk_sync_regression_is_measured_fixed_and_correct` runs 10 randomized before/after pairs, measures the 64 KiB per-chunk durability-sync bottleneck against one completion sync, records positive median goodput improvement and 32→1 sync calls, and verifies equal lengths/SHA-256 values; focused tests and strict clippy pass. |
 | S167 | DONE | `shaped_20_80ms_runs_report_paired_throughput_retries_and_wire_bytes` completes 10 randomized pairs at each 20/80 ms delayed profile, exercises a deterministic 503 retry, validates per-pair output hashes plus counter alignment, and emits stable JSON/Markdown goodput, retry, and wire-byte evidence; focused tests and strict clippy pass. |
 | S168 | DONE | `severe_wan_reports_paired_adaptive_backoff_and_recovery` completes 10 randomized pairs and 20 real 180 ms delayed, chunk-throttled HTTP transfers, verifies hashes and cache-busted pairing, and reports 1% loss/throttle controller pressure, retry/wire overhead, multiplicative backoff, cooldown, and recovery for every pair; the negative trace gate, focused tests, and strict clippy pass. |
-| S169 | TODO | — |
+| S169 | DONE | `fixed_receive_polling_regression_is_measured_fixed_and_fair` runs 10 randomized before/after pairs at 80 ms RTT, measures a 221.14% median goodput improvement after removing the fixed 20 ms receive sleep, verifies equal lengths/SHA-256 values, and emits JSON/Markdown evidence; the fairness suite preserves 4:2:1 service, bounds the low-priority gap at 6, covers equal-priority and pause/resume pressure, and all Rust workspace gates pass. |
 | S170 | TODO | — |
 | S171 | TODO | — |
 | S172 | TODO | — |
