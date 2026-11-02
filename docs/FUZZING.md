@@ -39,3 +39,21 @@ powershell -File scripts/test-fuzz-s160.ps1 -DurationSeconds 10 -CasesPerPass 64
 Minimized failures are saved in
 `crates/download-manager-engine/tests/fuzz_s160.proptest-regressions` and replayed automatically on
 every subsequent pass.
+
+## Crawler inputs
+
+S161 feeds arbitrary URL references plus bounded HTML and CSS documents through the same-host
+crawler, CSS discovery, and offline rewrite paths. The targets assert canonical URL invariants,
+same-host deduplication, and the crawler's 8 MiB HTML, 1 MiB stylesheet, 8,192-link, and 4,096-URL
+resource ceilings.
+
+Run its required smoke or a quick local pass from the repository root:
+
+```powershell
+powershell -File scripts/test-fuzz-s161.ps1 -DurationSeconds 1200
+powershell -File scripts/test-fuzz-s161.ps1 -DurationSeconds 10 -CasesPerPass 64
+```
+
+Minimized failures are saved in
+`crates/download-manager-engine/tests/fuzz_s161.proptest-regressions` and replayed automatically on
+every subsequent pass.
