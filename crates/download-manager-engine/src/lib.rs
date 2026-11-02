@@ -6,6 +6,7 @@ pub mod audio_output;
 pub mod auth;
 pub mod bandwidth_schedule;
 pub mod benchmark;
+pub mod benchmark_runner;
 pub mod checkpoint;
 pub mod credentials;
 pub mod dash;

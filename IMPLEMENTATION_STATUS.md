@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S162)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S163)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -171,7 +171,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S159 | DONE | Stable-toolchain `proptest` targets exercise bounded native-message frames/envelopes, arbitrary HTTP header bytes and strict shared `Content-Range` parsing, plus composed filename selection/sanitization/destination invariants; `scripts/test-fuzz-s159.ps1` completed the required 1,200-second smoke with minimized failures persisted and replayed from `fuzz_s159.proptest-regressions`; focused range regressions, strict clippy, and all fast verification gates pass. |
 | S160 | DONE | Engine `fuzz_s160` stable-toolchain `proptest` targets feed arbitrary normal and near-limit documents through the HLS master, HLS media, and static DASH parsers, including valid-root wrapping for deeper parser states; HLS now rejects manifests above 1 MiB or 20,000 lines while DASH retains its byte/depth/node/segment caps; `scripts/test-fuzz-s160.ps1` completed 80 randomized passes in 1,212.8 seconds with no crash, hang, OOM, or minimized failure, and all fast verification gates pass. |
 | S161 | DONE | Engine `fuzz_s161` stable-toolchain `proptest` targets feed arbitrary URL references and bounded HTML/CSS documents through same-host discovery and offline rewriting while asserting canonicalization, deduplication, and the 8 MiB/1 MiB plus 8,192-link/4,096-URL resource ceilings; `scripts/test-fuzz-s161.ps1` completed 52 randomized passes in 1,210.5 seconds with no crash, hang, OOM, or minimized failure, and all fast verification gates pass. |
-| S162 | TODO | — |
+| S162 | DONE | Engine `benchmark_runner` captures exact external application versions, uses a seeded balanced randomized A/B order and identical cache-busted source per pair, records elapsed time/bytes/SHA-256/goodput, and emits stable JSON/Markdown median, p10, p90, coefficient-of-variation, and paired-difference evidence; `small_ab_fixture_captures_versions_randomizes_order_and_reports_valid_statistics` passes. |
 | S163 | TODO | — |
 | S164 | TODO | — |
 | S165 | TODO | — |
