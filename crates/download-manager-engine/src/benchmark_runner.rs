@@ -426,7 +426,7 @@ fn remove_output(path: &Path) -> Result<(), io::Error> {
     }
 }
 
-fn distribution(values: &[f64]) -> SampleDistribution {
+pub(crate) fn distribution(values: &[f64]) -> SampleDistribution {
     debug_assert_ne!(values.len(), 0);
     let mut ordered = values.to_vec();
     ordered.sort_by(f64::total_cmp);
@@ -463,7 +463,7 @@ fn percentile(ordered: &[f64], numerator: usize, denominator: usize) -> f64 {
     }
 }
 
-fn u64_to_f64(value: u64) -> f64 {
+pub(crate) fn u64_to_f64(value: u64) -> f64 {
     let high = u32::try_from(value >> 32).expect("upper 32 bits fit u32");
     let low = u32::try_from(value & u64::from(u32::MAX)).expect("lower 32 bits fit u32");
     f64::from(high) * 4_294_967_296.0 + f64::from(low)

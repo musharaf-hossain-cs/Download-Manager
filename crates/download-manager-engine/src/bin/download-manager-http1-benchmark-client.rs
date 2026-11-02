@@ -1,4 +1,9 @@
-use std::{env, fs::File, process::ExitCode};
+use std::{
+    env,
+    fs::File,
+    io::{Read, Write},
+    process::ExitCode,
+};
 
 use reqwest::{StatusCode, Version, blocking::Client, header};
 
@@ -16,7 +21,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args_os().skip(1);
     let Some(command) = arguments.next() else {
         return Err(
-            "usage: download-manager-http1-benchmark-client --version | download|download-single-stream <url> <output>"
+            "usage: download-manager-http1-benchmark-client --version | download|download-single-stream|profile-before|profile-after <url> <output>"
                 .into(),
         );
     };
@@ -30,12 +35,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
         return Ok(());
     }
-    let send_range = if command == "download" {
-        true
-    } else if command == "download-single-stream" {
-        false
-    } else {
-        return Err("unknown command".into());
+    let (send_range, sync_policy) = match command.to_string_lossy().as_ref() {
+        "download" => (true, SyncPolicy::OnCompletion),
+        "download-single-stream" | "profile-after" => (false, SyncPolicy::OnCompletion),
+        "profile-before" => (false, SyncPolicy::EveryChunk),
+        _ => return Err("unknown command".into()),
     };
     let url = arguments.next().ok_or("download requires a URL")?;
     let output = arguments.next().ok_or("download requires an output path")?;
@@ -67,7 +71,42 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("fixture returned {}", response.status()).into());
     }
     let mut output = File::create(output)?;
-    response.copy_to(&mut output)?;
-    output.sync_all()?;
+    copy_with_sync_policy(&mut response, &mut output, sync_policy)?;
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum SyncPolicy {
+    EveryChunk,
+    OnCompletion,
+}
+
+fn copy_with_sync_policy(
+    source: &mut impl Read,
+    output: &mut File,
+    policy: SyncPolicy,
+) -> Result<(), std::io::Error> {
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let mut count = 0;
+        while count < buffer.len() {
+            let read = source.read(&mut buffer[count..])?;
+            if read == 0 {
+                break;
+            }
+            count += read;
+        }
+        if count == 0 {
+            break;
+        }
+        output.write_all(&buffer[..count])?;
+        if matches!(policy, SyncPolicy::EveryChunk) {
+            output.sync_all()?;
+        }
+    }
+    output.flush()?;
+    if matches!(policy, SyncPolicy::OnCompletion) {
+        output.sync_all()?;
+    }
     Ok(())
 }

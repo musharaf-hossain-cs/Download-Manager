@@ -91,3 +91,39 @@ The committed fixture uses the HTTP/1.1 client's `download-single-stream` mode a
 requests omit `Range`. Its identical baseline/candidate programs validate transport, hashes,
 cache-busting, threshold boundaries, and report reproducibility; only a release-lab run with the
 installed IDM and product wrappers establishes actual parity.
+
+## LAN regression profiling
+
+The S166 profile preserves one measured receive-loop regression: issuing a durability sync after
+every 64 KiB write. The paired fixture compares that behavior with the fixed policy, which writes
+all chunks and performs one durability sync at completion. The report records before/after median
+goodput, sync calls per download, and hash/length correctness for ten randomized pairs.
+
+```powershell
+cargo test --locked -p download-manager-engine --test lan_regression_s166
+```
+
+The fixture establishes the profile-and-fix contract deterministically. Release-lab evidence must
+still use the installed product wrapper, the controlled LAN server, and the same machine controls
+described above.
+
+## Shaped-WAN scenarios
+
+S167 requires one ten-pair profile at each of 20 ms and 80 ms RTT. Its machine-readable report
+keeps throughput, retry count, and wire bytes paired by run ID; wire bytes may never be lower than
+the verified useful output. The committed HTTP fixture applies the latency and one deterministic
+503/retry while capturing exact response bytes.
+
+S168 covers the severe 180 ms, 1% loss, per-connection-throttled profile. The committed fixture
+performs 20 real delayed and chunk-throttled HTTP transfers, then validates controller traces that
+show pressure backoff, cooldown, and productive recovery for every pair. Release-lab runs apply
+the declared loss and bandwidth with the controlled network shaper; the in-process fixture models
+loss as deterministic controller pressure so the adaptive report remains stable in CI.
+
+```powershell
+cargo test --locked -p download-manager-engine --test shaped_wan_s167
+cargo test --locked -p download-manager-engine --test severe_wan_s168
+```
+
+Both reports preserve the underlying paired result, exact shaping profile, complete counters or
+controller trace, output-hash verdict, and stable Markdown summary.

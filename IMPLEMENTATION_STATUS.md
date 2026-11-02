@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S166)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S169)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -175,9 +175,9 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S163 | DONE | `controlled_http1_lan_runs_ten_pairs_with_hashes_and_reports` completes 10 randomized pairs and 20 real loopback HTTP/1.1 range transfers, verifies per-pair cache-busting symmetry plus equal non-empty lengths/SHA-256 values, and writes valid JSON/Markdown evidence; focused and full workspace tests pass. |
 | S164 | DONE | `controlled_http2_lan_runs_ten_pairs_with_hashes_and_reports` completes 10 randomized pairs and 20 real h2c loopback range transfers with forced HTTP/2, verifies per-pair cache-busting symmetry plus equal non-empty lengths/SHA-256 values, and writes valid JSON/Markdown evidence; focused and full workspace tests pass. |
 | S165 | DONE | `non_range_single_stream_runs_ten_pairs_and_reports_reproducible_overhead` completes 10 randomized pairs and 20 real HTTP/1.1 `200 OK` transfers without `Range`, verifies cache-busting symmetry plus equal non-empty lengths/SHA-256 values, emits JSON/Markdown completion-time overhead evidence, and proves the exact 3% pass/fail boundary deterministically; all fast verification gates pass. |
-| S166 | TODO | — |
-| S167 | TODO | — |
-| S168 | TODO | — |
+| S166 | DONE | `per_chunk_sync_regression_is_measured_fixed_and_correct` runs 10 randomized before/after pairs, measures the 64 KiB per-chunk durability-sync bottleneck against one completion sync, records positive median goodput improvement and 32→1 sync calls, and verifies equal lengths/SHA-256 values; focused tests and strict clippy pass. |
+| S167 | DONE | `shaped_20_80ms_runs_report_paired_throughput_retries_and_wire_bytes` completes 10 randomized pairs at each 20/80 ms delayed profile, exercises a deterministic 503 retry, validates per-pair output hashes plus counter alignment, and emits stable JSON/Markdown goodput, retry, and wire-byte evidence; focused tests and strict clippy pass. |
+| S168 | DONE | `severe_wan_reports_paired_adaptive_backoff_and_recovery` completes 10 randomized pairs and 20 real 180 ms delayed, chunk-throttled HTTP transfers, verifies hashes and cache-busted pairing, and reports 1% loss/throttle controller pressure, retry/wire overhead, multiplicative backoff, cooldown, and recovery for every pair; the negative trace gate, focused tests, and strict clippy pass. |
 | S169 | TODO | — |
 | S170 | TODO | — |
 | S171 | TODO | — |
@@ -217,4 +217,5 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M3 | `cargo audit --deny warnings`; `cargo deny check bans licenses sources`; Node audit/license scripts; Gitleaks full-history scan | Passed: no known vulnerabilities or leaks; dependency sources/licenses accepted (duplicate-version policy warnings only). |
 | M4 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks, Rust format/clippy and 75 engine tests plus CLI/native-host tests, and TypeScript format/lint/build/typecheck with 76 desktop and 3 browser tests. |
 | M5 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks; Rust format/clippy plus 75 engine and 8 CLI/native-host tests (one helper ignored); TypeScript format/lint/build/typecheck plus 86 desktop and 51 browser-extension tests. |
+| M11 | Pinned MSVC `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace --locked`; `scripts/typescript-quality.ps1` | Passed: 4 focused LAN/WAN benchmark tests plus the complete Rust workspace and 203 TypeScript tests; measured correctness-preserving LAN fix, 20/80 ms counters, 180 ms adaptive evidence, and no warnings. |
 

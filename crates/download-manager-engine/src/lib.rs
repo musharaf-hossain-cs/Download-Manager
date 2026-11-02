@@ -8,6 +8,8 @@ pub mod bandwidth_schedule;
 pub mod benchmark;
 pub mod benchmark_lan;
 pub mod benchmark_runner;
+pub mod benchmark_wan;
+pub mod benchmark_wan_severe;
 pub mod checkpoint;
 pub mod credentials;
 pub mod dash;

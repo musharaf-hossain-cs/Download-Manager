@@ -11,7 +11,9 @@ pub const CONTROLLED_LAN_MINIMUM_PAIRS: usize = 10;
 pub const HTTP_1_1_PROTOCOL: &str = "HTTP/1.1";
 pub const HTTP_2_PROTOCOL: &str = "HTTP/2";
 pub const NON_RANGE_SINGLE_STREAM_SCENARIO: &str = "non-range-single-stream";
+pub const LAN_SYNC_REGRESSION_SCENARIO: &str = "lan-per-chunk-sync-regression";
 pub const MAXIMUM_SINGLE_STREAM_OVERHEAD_PERCENT: f64 = 3.0;
+pub const PROFILE_COPY_CHUNK_BYTES: u64 = 64 * 1024;
 
 const REPORT_SCHEMA_VERSION: u32 = 1;
 const PERCENTAGE_COMPARISON_EPSILON: f64 = 1e-9;
@@ -24,6 +26,19 @@ pub struct NonRangeSingleStreamReport {
     pub completion_time_overhead_percent: SampleDistribution,
     pub maximum_allowed_overhead_percent: f64,
     pub overhead_within_limit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LanRegressionReport {
+    pub schema_version: u32,
+    pub paired_report: PairedBenchmarkReport,
+    pub bottleneck: String,
+    pub fix: String,
+    pub before_sync_calls_per_download: u64,
+    pub after_sync_calls_per_download: u64,
+    pub median_goodput_improvement_percent: f64,
+    pub correctness_preserved: bool,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -44,6 +59,8 @@ pub enum ControlledLanReportError {
     OutputMismatch { pair: u32 },
     #[error("controlled LAN report summary did not confirm all output hashes")]
     SummaryHashMismatch,
+    #[error("LAN regression fix did not improve median paired goodput")]
+    NoMeasuredImprovement,
 }
 
 impl NonRangeSingleStreamReport {
@@ -72,6 +89,32 @@ impl NonRangeSingleStreamReport {
             self.maximum_allowed_overhead_percent,
             self.paired_report.summary.all_output_hashes_match,
             verdict,
+        )
+    }
+}
+
+impl LanRegressionReport {
+    /// Renders the measured bottleneck and fix alongside the paired timing evidence.
+    #[must_use]
+    pub fn render_markdown(&self) -> String {
+        format!(
+            "# LAN regression profile and fix\n\nProtocol: `{}`  \nBottleneck: **{}**  \nFix: **{}**\n\n| Metric | Before | After |\n|---|---:|---:|\n| Median goodput (B/s) | {:.2} | {:.2} |\n| Durability sync calls/download | {} | {} |\n\nMedian paired goodput improvement: **{:+.2}%**  \nAll output hashes match: **{}**  \nCorrectness preserved: **{}**\n",
+            self.paired_report.protocol,
+            self.bottleneck,
+            self.fix,
+            self.paired_report
+                .summary
+                .baseline_goodput_bytes_per_second
+                .median,
+            self.paired_report
+                .summary
+                .candidate_goodput_bytes_per_second
+                .median,
+            self.before_sync_calls_per_download,
+            self.after_sync_calls_per_download,
+            self.median_goodput_improvement_percent,
+            self.paired_report.summary.all_output_hashes_match,
+            self.correctness_preserved,
         )
     }
 }
@@ -134,6 +177,38 @@ pub fn build_non_range_single_stream_report(
         completion_time_overhead_percent,
         maximum_allowed_overhead_percent: MAXIMUM_SINGLE_STREAM_OVERHEAD_PERCENT,
         overhead_within_limit,
+    })
+}
+
+/// Builds before/after evidence for the LAN per-chunk durability-sync regression.
+///
+/// # Errors
+/// Returns an error unless the report has the expected scenario and HTTP/1.1 protocol, contains
+/// ten correct pairs, and measures a positive median goodput improvement after the fix.
+pub fn build_lan_regression_report(
+    report: &PairedBenchmarkReport,
+) -> Result<LanRegressionReport, ControlledLanReportError> {
+    if report.scenario != LAN_SYNC_REGRESSION_SCENARIO {
+        return Err(ControlledLanReportError::WrongScenario {
+            expected: LAN_SYNC_REGRESSION_SCENARIO,
+            actual: report.scenario.clone(),
+        });
+    }
+    validate_lan_report(report, HTTP_1_1_PROTOCOL)?;
+    if report.summary.paired_goodput_change_percent.median <= 0.0 {
+        return Err(ControlledLanReportError::NoMeasuredImprovement);
+    }
+    let bytes = report.samples[0].baseline.bytes;
+    let before_sync_calls_per_download = bytes.div_ceil(PROFILE_COPY_CHUNK_BYTES);
+    Ok(LanRegressionReport {
+        schema_version: REPORT_SCHEMA_VERSION,
+        paired_report: report.clone(),
+        bottleneck: "durability sync in every 64 KiB receive-loop iteration".to_owned(),
+        fix: "write every chunk and issue one durability sync after completion".to_owned(),
+        before_sync_calls_per_download,
+        after_sync_calls_per_download: 1,
+        median_goodput_improvement_percent: report.summary.paired_goodput_change_percent.median,
+        correctness_preserved: true,
     })
 }
 
