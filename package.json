@@ -22,6 +22,7 @@
     "test:soak-contract": "node scripts/soak-contract.test.mjs",
     "typecheck": "pnpm --recursive typecheck",
     "verify:docs": "node scripts/verify-markdown.mjs",
+    "verify:traceability": "node scripts/verify-traceability.mjs",
     "verify:status": "node scripts/verify-status.mjs",
     "audit:dependencies": "pnpm audit --audit-level high",
     "audit:licenses": "license-checker-rseidelsohn --development --excludePrivatePackages --summary --onlyAllow \"0BSD;Apache-2.0;BlueOak-1.0.0;BSD-2-Clause;BSD-3-Clause;CC-BY-3.0;CC0-1.0;ISC;MIT;MPL-2.0;Python-2.0;Unlicense\""

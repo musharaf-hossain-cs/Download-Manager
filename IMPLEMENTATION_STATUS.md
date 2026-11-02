@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-03
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S180)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S181)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -189,7 +189,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S177 | DONE | The weekly `Release candidate soak` workflow schedules a 24-hour self-hosted run and exposes a 60-minute validation profile; `scripts/soak-contract.test.mjs` simulates all 10,000 mixed S175/S176 jobs, proves campaign failure and deadlock-timeout detection, and verifies the committed workflow has no injected failure. |
 | S178 | DONE | `docs/evidence/s178-validation-review.json` records a `pass` review bound to SHA-256 `5fa76f51203da2521584275c6a90b73cec24f8a323b031ff936125fc9f606d92`: the completed 60-minute local validation ran 200 alternating S175/S176 campaign entries, verified all 10,000 mixed jobs, and required no continuation. |
 | S179 | DONE | Desktop `release-accessibility-audit-s179.test.ts` passes English/Bangla semantic scans and the complete primary keyboard flow, preserves visible high-contrast focus and non-color state cues, and verifies 30% text expansion across 100–250% DPI, 100–225% text scaling, and multi-monitor transitions without losing controls or the download region. |
-| S180 | TODO | — |
+| S180 | DONE | `pnpm verify:traceability` exhaustively reconciles all 170 explicit P0/P1 requirements and 16 v1 acceptance criteria with exactly one final audit row, rejects missing/duplicate/unknown/placeholder evidence, and reports 129 Verified, 46 Implemented, and 11 explicitly Blocked entries; the same gate runs in local fast verification and documentation CI. |
 | S181 | TODO | — |
 | S182 | TODO | — |
 

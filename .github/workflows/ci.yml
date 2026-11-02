@@ -26,6 +26,7 @@ jobs:
         shell: pwsh
         run: |
           node scripts/verify-markdown.mjs
+          node scripts/verify-traceability.mjs
           node scripts/verify-status.mjs
 
   rust:
