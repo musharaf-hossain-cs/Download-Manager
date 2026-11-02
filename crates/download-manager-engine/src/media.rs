@@ -7,6 +7,9 @@ use url::Url;
 
 use crate::domain::HttpUrl;
 
+const MAX_HLS_MANIFEST_BYTES: usize = 1_048_576;
+const MAX_HLS_LINES: usize = 20_000;
+
 /// A parsed HLS multivariant (master) playlist.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HlsMasterPlaylist {
@@ -87,6 +90,10 @@ pub enum ProtectedMediaKind {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum HlsMediaError {
+    #[error("HLS manifest exceeds the 1048576-byte parser limit")]
+    DocumentTooLarge,
+    #[error("HLS manifest exceeds the parser complexity limit")]
+    ComplexityLimit,
     #[error("playlist must begin with #EXTM3U")]
     MissingHeader,
     #[error("playlist does not contain media segments")]
@@ -114,6 +121,10 @@ pub enum HlsMediaError {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum HlsMasterError {
+    #[error("HLS manifest exceeds the 1048576-byte parser limit")]
+    DocumentTooLarge,
+    #[error("HLS manifest exceeds the parser complexity limit")]
+    ComplexityLimit,
     #[error("playlist must begin with #EXTM3U")]
     MissingHeader,
     #[error("playlist does not contain HLS master tags")]
@@ -143,6 +154,10 @@ pub fn parse_hls_master_playlist(
     manifest: &str,
     manifest_url: &HttpUrl,
 ) -> Result<HlsMasterPlaylist, HlsMasterError> {
+    validate_hls_limits(manifest).map_err(|limit| match limit {
+        HlsLimitError::DocumentTooLarge => HlsMasterError::DocumentTooLarge,
+        HlsLimitError::ComplexityLimit => HlsMasterError::ComplexityLimit,
+    })?;
     let mut lines = manifest
         .lines()
         .map(str::trim)
@@ -213,6 +228,10 @@ pub fn parse_hls_media_playlist(
     manifest: &str,
     manifest_url: &HttpUrl,
 ) -> Result<HlsMediaPlaylist, HlsMediaError> {
+    validate_hls_limits(manifest).map_err(|limit| match limit {
+        HlsLimitError::DocumentTooLarge => HlsMediaError::DocumentTooLarge,
+        HlsLimitError::ComplexityLimit => HlsMediaError::ComplexityLimit,
+    })?;
     let mut lines = manifest
         .lines()
         .map(str::trim)
@@ -232,6 +251,22 @@ pub fn parse_hls_media_playlist(
         state.parse_line(&base, line)?;
     }
     state.finish()
+}
+
+#[derive(Debug, Clone, Copy)]
+enum HlsLimitError {
+    DocumentTooLarge,
+    ComplexityLimit,
+}
+
+fn validate_hls_limits(manifest: &str) -> Result<(), HlsLimitError> {
+    if manifest.len() > MAX_HLS_MANIFEST_BYTES {
+        return Err(HlsLimitError::DocumentTooLarge);
+    }
+    if manifest.lines().count() > MAX_HLS_LINES {
+        return Err(HlsLimitError::ComplexityLimit);
+    }
+    Ok(())
 }
 
 fn classify_hls_protection(lines: &[&str]) -> Option<ProtectedMediaKind> {
@@ -641,13 +676,36 @@ fn parse_positive_f64(value: &str, attribute: &'static str) -> Result<f64, HlsMa
 #[cfg(test)]
 mod tests {
     use super::{
-        HlsByteRange, HlsMasterError, HlsMediaError, ProtectedMediaKind, parse_hls_master_playlist,
-        parse_hls_media_playlist,
+        HlsByteRange, HlsMasterError, HlsMediaError, MAX_HLS_LINES, MAX_HLS_MANIFEST_BYTES,
+        ProtectedMediaKind, parse_hls_master_playlist, parse_hls_media_playlist,
     };
     use crate::domain::HttpUrl;
 
     fn url(value: &str) -> HttpUrl {
         HttpUrl::parse(value).expect("fixture URL")
+    }
+
+    #[test]
+    fn hls_parsers_reject_oversized_and_over_complex_documents() {
+        let oversized = " ".repeat(MAX_HLS_MANIFEST_BYTES + 1);
+        assert_eq!(
+            parse_hls_master_playlist(&oversized, &url("https://example.test/master.m3u8")),
+            Err(HlsMasterError::DocumentTooLarge)
+        );
+        assert_eq!(
+            parse_hls_media_playlist(&oversized, &url("https://example.test/media.m3u8")),
+            Err(HlsMediaError::DocumentTooLarge)
+        );
+
+        let over_complex = format!("#EXTM3U\n{}", "\n".repeat(MAX_HLS_LINES));
+        assert_eq!(
+            parse_hls_master_playlist(&over_complex, &url("https://example.test/master.m3u8")),
+            Err(HlsMasterError::ComplexityLimit)
+        );
+        assert_eq!(
+            parse_hls_media_playlist(&over_complex, &url("https://example.test/media.m3u8")),
+            Err(HlsMediaError::ComplexityLimit)
+        );
     }
 
     #[test]

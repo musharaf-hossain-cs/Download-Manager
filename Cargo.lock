@@ -332,6 +332,7 @@ dependencies = [
  "keyring-core",
  "md-5",
  "percent-encoding",
+ "proptest",
  "quick-xml",
  "reqwest",
  "rusqlite",

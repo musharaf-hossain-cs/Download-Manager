@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-02
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S160)
+- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S161)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -169,7 +169,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S157 | DONE | Engine `update_staging::tests` force-kill a child after its first staged chunk, then prove fresh-store recovery removes only the bounded incomplete transaction and launches the byte-exact old application; ready updates persist the exact S156 metadata/signature, reauthenticate and rehash on recovery, reject coordinated artifact/metadata replacement, and preserve malformed or oversized pending evidence; all fast verification gates pass. |
 | S158 | DONE | Engine `update_activation::tests` reauthenticate S157 pending bytes at the activation boundary, then use a SQLite-consistent atomic rollback swap to prove a forced post-switch health failure restores the byte-exact launchable old app, every paused job, request-context reference, named-queue order, segment/checkpoint offset, event, and untouched partial; the success path accepts a launchable candidate only after the same compatibility snapshot passes and clears pending state for the next update; all fast verification gates pass. |
 | S159 | DONE | Stable-toolchain `proptest` targets exercise bounded native-message frames/envelopes, arbitrary HTTP header bytes and strict shared `Content-Range` parsing, plus composed filename selection/sanitization/destination invariants; `scripts/test-fuzz-s159.ps1` completed the required 1,200-second smoke with minimized failures persisted and replayed from `fuzz_s159.proptest-regressions`; focused range regressions, strict clippy, and all fast verification gates pass. |
-| S160 | TODO | — |
+| S160 | DONE | Engine `fuzz_s160` stable-toolchain `proptest` targets feed arbitrary normal and near-limit documents through the HLS master, HLS media, and static DASH parsers, including valid-root wrapping for deeper parser states; HLS now rejects manifests above 1 MiB or 20,000 lines while DASH retains its byte/depth/node/segment caps; `scripts/test-fuzz-s160.ps1` completed 80 randomized passes in 1,212.8 seconds with no crash, hang, OOM, or minimized failure, and all fast verification gates pass. |
 | S161 | TODO | — |
 | S162 | TODO | — |
 | S163 | TODO | — |
