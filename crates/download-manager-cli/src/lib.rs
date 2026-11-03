@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 mod local_ipc;
 
-pub use local_ipc::{AuthenticatedIpcBackend, LocalIpcServer};
+pub use local_ipc::{
+    AuthenticatedIpcBackend, BackendHealth, LocalIpcError, LocalIpcServer, ServerCommand,
+};
 
 pub const CLI_CONTRACT_VERSION: u16 = 1;
 

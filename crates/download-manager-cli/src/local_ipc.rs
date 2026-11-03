@@ -47,6 +47,8 @@ pub enum LocalIpcError {
     MessageTooLarge,
     #[error("IPC peer returned an unexpected response")]
     UnexpectedResponse,
+    #[error("IPC backend is unavailable: {0}")]
+    BackendUnavailable(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +72,8 @@ struct AuthenticatedRequest {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum RequestPayload {
+    Health,
+    Shutdown,
     Add {
         source_url: HttpUrl,
         output_directory: PathBuf,
@@ -100,9 +104,25 @@ struct WireResponse {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 enum ResponsePayload {
+    Health { health: BackendHealth },
+    Shutdown,
     Job { job: JobView },
     Jobs { jobs: Vec<JobView> },
     Queue { queue: QueueStart },
+}
+
+/// Non-secret identity returned by the authenticated backend health check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BackendHealth {
+    pub version: String,
+}
+
+/// Lifecycle decision produced after one authenticated request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerCommand {
+    Continue,
+    Shutdown,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -160,10 +180,36 @@ impl AuthenticatedIpcBackend {
             let (store, reference) = current_user_credential()?;
             let bearer_token = store.load(&reference)?;
             validate_token(&bearer_token)?;
-            Ok(Self {
+            let mut backend = Self {
                 manifest,
                 bearer_token,
-            })
+            };
+            backend
+                .health()
+                .map_err(|error| LocalIpcError::BackendUnavailable(format_backend_error(&error)))?;
+            Ok(backend)
+        }
+    }
+
+    /// Performs an authenticated liveness and version check.
+    ///
+    /// # Errors
+    /// Returns a transport error when discovery is stale or authentication is rejected.
+    pub fn health(&mut self) -> Result<BackendHealth, BackendError> {
+        match self.exchange(RequestPayload::Health)? {
+            ResponsePayload::Health { health } => Ok(health),
+            _ => Err(unexpected_response()),
+        }
+    }
+
+    /// Requests a clean backend shutdown after the response has been flushed.
+    ///
+    /// # Errors
+    /// Returns a transport error when the backend cannot acknowledge the request.
+    pub fn shutdown(&mut self) -> Result<(), BackendError> {
+        match self.exchange(RequestPayload::Shutdown)? {
+            ResponsePayload::Shutdown => Ok(()),
+            _ => Err(unexpected_response()),
         }
     }
 
@@ -249,24 +295,26 @@ impl CliBackend for AuthenticatedIpcBackend {
     }
 }
 
-/// Engine-side half of the authenticated CLI transport. Binding rotates the random vault secret
-/// and publishes only a safe loopback discovery manifest. Each accepted request is authenticated
+/// Engine-side half of the authenticated CLI transport. Preparation rotates the random vault
+/// secret and binds loopback without publishing discovery. [`Self::publish_ready`] exposes the
+/// safe manifest only after the backend authority is ready. Each accepted request is authenticated
 /// before any [`CliBackend`] authority is invoked.
 pub struct LocalIpcServer {
     listener: TcpListener,
+    manifest: EndpointManifest,
     manifest_path: PathBuf,
     instance_id: String,
     bearer_token: String,
     credential: Option<(WindowsCredentialStore, CredentialRef)>,
+    published: bool,
 }
 
 impl LocalIpcServer {
-    /// Binds the current-user endpoint and publishes its vault-backed discovery state.
+    /// Prepares the current-user endpoint without publishing discovery state.
     ///
     /// # Errors
-    /// Returns an error if loopback binding, current-user vault storage, or manifest publication
-    /// fails.
-    pub fn bind_current_user() -> Result<Self, LocalIpcError> {
+    /// Returns an error if loopback binding or current-user vault storage fails.
+    pub fn prepare_current_user() -> Result<Self, LocalIpcError> {
         #[cfg(not(windows))]
         {
             Err(LocalIpcError::UnsupportedPlatform)
@@ -278,7 +326,7 @@ impl LocalIpcServer {
             let (store, reference) = current_user_credential()?;
             let bearer_token = random_token();
             store.store(&reference, &bearer_token)?;
-            match Self::bind(
+            match Self::prepare(
                 &directory,
                 bearer_token,
                 Some((store.clone(), reference.clone())),
@@ -292,7 +340,7 @@ impl LocalIpcServer {
         }
     }
 
-    fn bind(
+    fn prepare(
         directory: &Path,
         bearer_token: String,
         credential: Option<(WindowsCredentialStore, CredentialRef)>,
@@ -308,14 +356,25 @@ impl LocalIpcServer {
             instance_id: instance_id.clone(),
             address: listener.local_addr()?,
         };
-        publish_manifest(&manifest_path, &manifest)?;
         Ok(Self {
             listener,
+            manifest,
             manifest_path,
             instance_id,
             bearer_token,
             credential,
+            published: false,
         })
+    }
+
+    /// Atomically publishes discovery only after the backend authority is ready to serve.
+    ///
+    /// # Errors
+    /// Returns an error if the ready manifest cannot be published.
+    pub fn publish_ready(&mut self) -> Result<(), LocalIpcError> {
+        publish_manifest(&self.manifest_path, &self.manifest)?;
+        self.published = true;
+        Ok(())
     }
 
     /// Accepts, authenticates, and dispatches exactly one request.
@@ -323,22 +382,41 @@ impl LocalIpcServer {
     /// # Errors
     /// Returns an error for transport/framing failures. Authentication failure is returned to the
     /// peer without invoking `backend`.
-    pub fn serve_once<B: CliBackend + ?Sized>(&self, backend: &mut B) -> Result<(), LocalIpcError> {
+    pub fn serve_once<B: CliBackend + ?Sized>(
+        &self,
+        backend: &mut B,
+    ) -> Result<ServerCommand, LocalIpcError> {
         let (mut stream, _) = self.listener.accept()?;
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         let request: AuthenticatedRequest = read_message(&mut stream)?;
-        let result = if request.version != IPC_PROTOCOL_VERSION
+        let (result, command) = if request.version != IPC_PROTOCOL_VERSION
             || request.instance_id != self.instance_id
             || !constant_time_eq(
                 request.bearer_token.as_bytes(),
                 self.bearer_token.as_bytes(),
             ) {
-            Err(WireError::Transport {
-                message: "current-user IPC authentication rejected".to_owned(),
-            })
+            (
+                Err(WireError::Transport {
+                    message: "current-user IPC authentication rejected".to_owned(),
+                }),
+                ServerCommand::Continue,
+            )
         } else {
-            dispatch(request.payload, backend)
+            match request.payload {
+                RequestPayload::Health => (
+                    Ok(ResponsePayload::Health {
+                        health: BackendHealth {
+                            version: download_manager_engine::VERSION.to_owned(),
+                        },
+                    }),
+                    ServerCommand::Continue,
+                ),
+                RequestPayload::Shutdown => {
+                    (Ok(ResponsePayload::Shutdown), ServerCommand::Shutdown)
+                }
+                payload => (dispatch(payload, backend), ServerCommand::Continue),
+            }
         };
         write_message(
             &mut stream,
@@ -346,24 +424,30 @@ impl LocalIpcServer {
                 version: IPC_PROTOCOL_VERSION,
                 result,
             },
-        )
+        )?;
+        Ok(command)
     }
 
     #[cfg(test)]
     fn bind_with_token(directory: &Path, bearer_token: String) -> Result<Self, LocalIpcError> {
-        Self::bind(directory, bearer_token, None)
+        let mut server = Self::prepare(directory, bearer_token, None)?;
+        server.publish_ready()?;
+        Ok(server)
     }
 }
 
 impl Drop for LocalIpcServer {
     fn drop(&mut self) {
-        let owns_manifest = read_manifest(&self.manifest_path)
-            .is_ok_and(|manifest| manifest.instance_id == self.instance_id);
+        let owns_manifest = self.published
+            && read_manifest(&self.manifest_path)
+                .is_ok_and(|manifest| manifest.instance_id == self.instance_id);
         if owns_manifest {
             let _ = fs::remove_file(&self.manifest_path);
-            if let Some((store, reference)) = &self.credential {
-                let _ = store.delete(reference);
-            }
+        }
+        if (!self.published || owns_manifest)
+            && let Some((store, reference)) = &self.credential
+        {
+            let _ = store.delete(reference);
         }
     }
 }
@@ -373,6 +457,9 @@ fn dispatch<B: CliBackend + ?Sized>(
     backend: &mut B,
 ) -> Result<ResponsePayload, WireError> {
     match payload {
+        RequestPayload::Health | RequestPayload::Shutdown => {
+            unreachable!("lifecycle is handled before dispatch")
+        }
         RequestPayload::Add {
             source_url,
             output_directory,
@@ -495,6 +582,13 @@ fn unexpected_response() -> BackendError {
     BackendError::Transport(LocalIpcError::UnexpectedResponse.to_string())
 }
 
+fn format_backend_error(error: &BackendError) -> String {
+    match error {
+        BackendError::NotFound(message) | BackendError::Transport(message) => message.clone(),
+        BackendError::Rejected { code, message } => format!("{code}: {message}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, net::SocketAddr, thread};
@@ -587,6 +681,42 @@ mod tests {
     }
 
     #[test]
+    fn discovery_is_published_only_after_ready_and_lifecycle_bypasses_backend_authority() {
+        let directory = directory();
+        let token = "f".repeat(64);
+        let mut server =
+            LocalIpcServer::prepare(&directory, token.clone(), None).expect("prepare server");
+        assert!(!directory.join(MANIFEST_FILE).exists());
+        server.publish_ready().expect("publish ready");
+        let mut client =
+            AuthenticatedIpcBackend::discover_with_token(&directory, token).expect("discover");
+        let server_thread = thread::spawn(move || {
+            let mut backend = FixtureBackend {
+                jobs: vec![job()],
+                calls: 0,
+            };
+            assert_eq!(
+                server.serve_once(&mut backend).expect("serve health"),
+                super::ServerCommand::Continue
+            );
+            assert_eq!(
+                server.serve_once(&mut backend).expect("serve shutdown"),
+                super::ServerCommand::Shutdown
+            );
+            backend.calls
+        });
+
+        assert_eq!(
+            client.health().expect("health").version,
+            download_manager_engine::VERSION
+        );
+        client.shutdown().expect("shutdown");
+        assert_eq!(server_thread.join().expect("server thread"), 0);
+        assert!(!directory.join(MANIFEST_FILE).exists());
+        fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
     fn wrong_user_secret_is_rejected_before_backend_dispatch() {
         let directory = directory();
         let server = LocalIpcServer::bind_with_token(&directory, "b".repeat(64)).expect("bind");
@@ -671,6 +801,34 @@ mod tests {
         assert!(matches!(
             AuthenticatedIpcBackend::discover_with_token(&directory, "short".to_owned()),
             Err(LocalIpcError::UnsafeManifest)
+        ));
+        fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
+    fn stale_discovery_endpoint_fails_health_before_dispatch() {
+        let directory = directory();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve address");
+        let address = listener.local_addr().expect("address");
+        drop(listener);
+        let manifest = EndpointManifest {
+            version: IPC_PROTOCOL_VERSION,
+            scope: USER_SCOPE.to_owned(),
+            instance_id: uuid::Uuid::new_v4().to_string(),
+            address,
+        };
+        fs::write(
+            directory.join(MANIFEST_FILE),
+            serde_json::to_vec(&manifest).expect("serialize"),
+        )
+        .expect("write");
+        let mut client = AuthenticatedIpcBackend::discover_with_token(&directory, "1".repeat(64))
+            .expect("strict discovery");
+
+        assert!(matches!(
+            client.health(),
+            Err(BackendError::Transport(message)) if message.contains("refused")
+                || message.contains("failed")
         ));
         fs::remove_dir_all(directory).expect("cleanup");
     }

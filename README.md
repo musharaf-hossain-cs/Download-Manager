@@ -18,6 +18,7 @@ The speed goal is a measured release gate, not a claim that any client can overr
 
 - [Product Requirements and SRS](./REQUIREMENTS.md)
 - [Progressive Implementation Plan](./PROGRESSIVE_IMPLEMENTATION_PLAN.md)
+- [Private-use initial implementation plan](./docs/PRIVATE_USE_PLAN.md)
 - [User guide and troubleshooting](./docs/USER_GUIDE.md)
 - [Privacy statement](./docs/PRIVACY.md)
 - [Third-party notices](./docs/THIRD_PARTY_NOTICES.md)
