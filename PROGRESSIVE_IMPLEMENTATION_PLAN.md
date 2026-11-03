@@ -10,7 +10,7 @@
 
 ## 1. উদ্দেশ্য
 
-পুরো application একবারে implement করা হবে না। কাজটি 12টি milestone এবং 185টি ছোট atomic slice-এ ভাগ করা হয়েছে। একটি Codex session সাধারণত **একটি Q2 slice** অথবা সর্বোচ্চ **দুটি adjacent Q1 slice** নেবে। এতে context, tool calls, compilation, tests, debugging এবং commit—সব usage limit-এর ভেতরে রাখার safety margin থাকে।
+পুরো application একবারে implement করা হবে না। কাজটি 12টি milestone এবং 186টি ছোট atomic slice-এ ভাগ করা হয়েছে। একটি Codex session সাধারণত **একটি Q2 slice** অথবা সর্বোচ্চ **দুটি adjacent Q1 slice** নেবে। এতে context, tool calls, compilation, tests, debugging এবং commit—সব usage limit-এর ভেতরে রাখার safety margin থাকে।
 
 এখানে “quota-safe” wall-clock guarantee নয়। কোনো slice unexpectedly জটিল হলে scope/test কমিয়ে pass দেখানো যাবে না; remaining root cause নতুন continuation slice হবে।
 
@@ -332,6 +332,7 @@ type(scope): complete SNNN short description
 | S183 | Q2 | Persisted per-server transfer rules | Restart persistence; exact-host cap/header/segmentation/proxy plan | S039, S051, S180 |
 | S184 | Q1 | Browser/native route mismatch diagnostics | Opaque proxy/egress comparison plus visible non-inheritance limitation | S051, S083, S134, S180 |
 | S185 | Q2 | Signed data-only site-adapter rules | Pinned-key rejection; version/schema bounds; no executable rule shape | S156, S180 |
+| S186 | Q2 | YouTube media offer policy gate | Permission/rights/law confirmation; visible withheld reason; click-time recheck | S102–S105, S120, S180 |
 
 ---
 

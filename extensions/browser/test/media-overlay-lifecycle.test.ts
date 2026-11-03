@@ -340,4 +340,90 @@ describe("media overlay lifecycle", () => {
     expect(fixture.overlays()).toEqual([overlay]);
     lifecycle.destroy();
   });
+
+  it("withholds YouTube actions until all policy confirmations are current", () => {
+    const fixture = lifecycleFixture();
+    fixture.windowFixture.location.href =
+      "https://www.youtube.com/watch?v=example";
+    fixture.addPlayer();
+    const onDownload = vi.fn();
+    let confirmed = false;
+    const lifecycle = installMediaOverlayLifecycle({
+      document: fixture.document as unknown as Document,
+      window: fixture.windowFixture as unknown as Window,
+      players: () => fixture.players as unknown as readonly Element[],
+      onDownload,
+      youtubeAuthorization: () =>
+        confirmed
+          ? {
+              servicePermission: "confirmed",
+              mediaRights: "confirmed",
+              lawfulUse: "confirmed",
+            }
+          : null,
+      MutationObserver: fixture.windowFixture.MutationObserver,
+      ResizeObserver: fixture.windowFixture.ResizeObserver,
+    });
+
+    const withheld = fixture.overlays()[0]?.shadow.children[1] as FakeElement;
+    expect(withheld.tagName).toBe("div");
+    expect(withheld.attributes.get("role")).toBe("status");
+    expect(withheld.textContent).toContain("Download action withheld");
+    expect(onDownload).not.toHaveBeenCalled();
+
+    confirmed = true;
+    lifecycle.refresh();
+    const offered = fixture.overlays()[0]?.shadow.children[1] as FakeElement;
+    expect(offered.tagName).toBe("button");
+    expect(offered.textContent).toBe("Download media");
+    offered.dispatch("click");
+    expect(onDownload).toHaveBeenCalledOnce();
+    lifecycle.destroy();
+  });
+
+  it("revalidates YouTube policy at click time before native handoff", () => {
+    const fixture = lifecycleFixture();
+    fixture.windowFixture.location.href =
+      "https://www.youtube.com/watch?v=example";
+    fixture.addPlayer();
+    const onDownload = vi.fn();
+    const onPolicyWithheld = vi.fn();
+    let confirmed = true;
+    const lifecycle = installMediaOverlayLifecycle({
+      document: fixture.document as unknown as Document,
+      window: fixture.windowFixture as unknown as Window,
+      players: () => fixture.players as unknown as readonly Element[],
+      onDownload,
+      onPolicyWithheld,
+      youtubeAuthorization: () => ({
+        servicePermission: confirmed ? "confirmed" : "not_confirmed",
+        mediaRights: "confirmed",
+        lawfulUse: "confirmed",
+      }),
+      MutationObserver: fixture.windowFixture.MutationObserver,
+      ResizeObserver: fixture.windowFixture.ResizeObserver,
+    });
+
+    const offered = fixture.overlays()[0]?.shadow.children[1] as FakeElement;
+    expect(offered.textContent).toBe("Download media");
+
+    confirmed = false;
+    offered.dispatch("click");
+
+    expect(onDownload).not.toHaveBeenCalled();
+    expect(onPolicyWithheld).toHaveBeenCalledOnce();
+    expect(onPolicyWithheld).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offer: false,
+        reason: "service_permission_required",
+        explanation:
+          "Download action withheld: confirm that the applicable YouTube service permission or terms allow this download.",
+      }),
+    );
+    const withheld = fixture.overlays()[0]?.shadow.children[1] as FakeElement;
+    expect(withheld.tagName).toBe("div");
+    expect(withheld.attributes.get("role")).toBe("status");
+    expect(withheld.textContent).toContain("Download action withheld");
+    lifecycle.destroy();
+  });
 });

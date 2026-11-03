@@ -30,3 +30,4 @@ export * from "./media-player-overlay.js";
 export * from "./media-overlay-lifecycle.js";
 export * from "./media-overlay-interaction.js";
 export * from "./progressive-media-handoff.js";
+export * from "./youtube-media-policy.js";

@@ -4,6 +4,7 @@ import {
   MEDIA_PLAYER_OVERLAY_HOST_ATTRIBUTE,
   mountBasicMediaPlayerOverlay,
 } from "../src/media-player-overlay.js";
+import { evaluateMediaDownloadOffer } from "../src/youtube-media-policy.js";
 
 class FakeNode {
   readonly children: FakeNode[] = [];
@@ -178,6 +179,33 @@ describe("basic media player overlay", () => {
       style: player.style,
     }).toEqual(before);
     expect(document.documentElement.children).toEqual([overlay.host]);
+  });
+
+  it("renders a non-action explanation when YouTube policy withholds download", () => {
+    const { document, player } = domFixture();
+    const onDownload = vi.fn();
+    mountBasicMediaPlayerOverlay({
+      document: document as unknown as Document,
+      player: player as unknown as Element,
+      onDownload,
+      downloadOffer: evaluateMediaDownloadOffer(
+        "https://www.youtube.com/watch?v=example",
+      ),
+    });
+
+    const host = document.documentElement.children[0] as FakeElement;
+    const notice = host.shadow.children[1] as FakeElement;
+    expect(notice.tagName).toBe("div");
+    expect(notice.attributes.get("role")).toBe("status");
+    expect(notice.textContent).toContain("Download action withheld");
+    expect(
+      document.created.filter(
+        (element) =>
+          element.tagName === "button" &&
+          element.textContent === "Download media",
+      ),
+    ).toEqual([]);
+    expect(onDownload).not.toHaveBeenCalled();
   });
 
   it("keeps the button inside the viewport gutter near clipped players", () => {

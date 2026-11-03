@@ -2,6 +2,11 @@ import {
   mountBasicMediaPlayerOverlay,
   type BasicMediaPlayerOverlay,
 } from "./media-player-overlay.js";
+import {
+  evaluateMediaDownloadOffer,
+  type MediaDownloadOfferDecision,
+  type YouTubeMediaAuthorization,
+} from "./youtube-media-policy.js";
 
 export interface MediaOverlayLifecycle {
   refresh(): void;
@@ -14,6 +19,11 @@ export interface MediaOverlayLifecycleOptions {
   /** Returns only players that have a downloadable candidate. */
   readonly players: () => readonly Element[];
   readonly onDownload: (player: Element) => Promise<void> | void;
+  /** Fresh user/service evidence used by the fail-closed YouTube offer gate. */
+  readonly youtubeAuthorization?: () => YouTubeMediaAuthorization | null;
+  readonly onPolicyWithheld?: (
+    decision: Extract<MediaDownloadOfferDecision, { readonly offer: false }>,
+  ) => void;
   readonly MutationObserver?: typeof MutationObserver;
   readonly ResizeObserver?: typeof ResizeObserver;
 }
@@ -27,7 +37,10 @@ export function installMediaOverlayLifecycle(
     options.MutationObserver ?? globalThis.MutationObserver;
   const ResizeObserverConstructor =
     options.ResizeObserver ?? globalThis.ResizeObserver;
-  const overlays = new Map<Element, BasicMediaPlayerOverlay>();
+  const overlays = new Map<
+    Element,
+    { readonly overlay: BasicMediaPlayerOverlay; readonly offerKey: string }
+  >();
   let pageIdentity = documentIdentity(window.location.href);
   let frame: number | null = null;
   let destroyed = false;
@@ -35,10 +48,10 @@ export function installMediaOverlayLifecycle(
   const resizeObserver = new ResizeObserverConstructor(() => schedule());
 
   const removePlayer = (player: Element): void => {
-    const overlay = overlays.get(player);
-    if (overlay === undefined) return;
+    const managed = overlays.get(player);
+    if (managed === undefined) return;
     resizeObserver.unobserve(player);
-    overlay.destroy();
+    managed.overlay.destroy();
     overlays.delete(player);
   };
 
@@ -66,17 +79,34 @@ export function installMediaOverlayLifecycle(
       if (!currentPlayers.has(player)) removePlayer(player);
     }
 
+    const downloadOffer = currentDownloadOffer(options, window.location.href);
+    const offerKey = decisionKey(downloadOffer);
     for (const player of currentPlayers) {
-      let overlay = overlays.get(player);
-      if (overlay === undefined) {
-        overlay = mountBasicMediaPlayerOverlay({
+      let managed = overlays.get(player);
+      if (managed !== undefined && managed.offerKey !== offerKey) {
+        removePlayer(player);
+        managed = undefined;
+      }
+      if (managed === undefined) {
+        const overlay = mountBasicMediaPlayerOverlay({
           document,
           player,
-          onDownload: () => onDownload(player),
+          downloadOffer,
+          onDownload: () => {
+            const current = currentDownloadOffer(options, window.location.href);
+            if (!current.offer) {
+              options.onPolicyWithheld?.(current);
+              refresh();
+              return;
+            }
+            return onDownload(player);
+          },
         });
-        overlays.set(player, overlay);
+        managed = { overlay, offerKey };
+        overlays.set(player, managed);
         resizeObserver.observe(player);
       }
+      const { overlay } = managed;
       const fullscreen = document.fullscreenElement;
       const portal =
         fullscreen !== null &&
@@ -125,6 +155,22 @@ export function installMediaOverlayLifecycle(
       removeAll();
     },
   });
+}
+
+function currentDownloadOffer(
+  options: MediaOverlayLifecycleOptions,
+  pageUrl: string,
+): MediaDownloadOfferDecision {
+  return evaluateMediaDownloadOffer(
+    pageUrl,
+    options.youtubeAuthorization?.() ?? null,
+  );
+}
+
+function decisionKey(decision: MediaDownloadOfferDecision): string {
+  return decision.offer
+    ? `${decision.site}:offer`
+    : `${decision.site}:withheld:${decision.reason}`;
 }
 
 function documentIdentity(value: string): string {

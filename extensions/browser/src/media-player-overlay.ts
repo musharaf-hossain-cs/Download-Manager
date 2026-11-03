@@ -1,4 +1,5 @@
 import type { MediaOverlaySiteState } from "./media-overlay-interaction.js";
+import type { MediaDownloadOfferDecision } from "./youtube-media-policy.js";
 
 export const MEDIA_PLAYER_OVERLAY_HOST_ATTRIBUTE =
   "data-download-manager-media-overlay";
@@ -13,6 +14,7 @@ export interface BasicMediaPlayerOverlayOptions {
   readonly document: Document;
   readonly player: Element;
   readonly onDownload: () => Promise<void> | void;
+  readonly downloadOffer?: MediaDownloadOfferDecision;
   readonly initialInteractionState?: MediaOverlaySiteState;
   readonly onInteractionChange?: (state: MediaOverlaySiteState) => void;
 }
@@ -22,6 +24,11 @@ export function mountBasicMediaPlayerOverlay(
   options: BasicMediaPlayerOverlayOptions,
 ): BasicMediaPlayerOverlay {
   const { document, player, onDownload } = options;
+  const downloadOffer = options.downloadOffer ?? {
+    offer: true,
+    site: "other",
+    notice: null,
+  };
   let interactionState = cloneInteractionState(
     options.initialInteractionState ?? { minimized: false, position: null },
   );
@@ -49,19 +56,42 @@ export function mountBasicMediaPlayerOverlay(
       pointer-events: auto;
     }
     button[hidden] { display: none; }
+    .notice {
+      box-sizing: border-box;
+      max-width: 320px;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      border-radius: 6px;
+      background: rgba(24, 24, 27, 0.96);
+      color: #fff;
+      font: 500 12px/1.35 system-ui, sans-serif;
+      padding: 8px 10px;
+      pointer-events: auto;
+    }
+    .notice[hidden] { display: none; }
     .control { margin-inline-start: 4px; padding: 8px; }
     .drag { cursor: grab; touch-action: none; }
     button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
   `;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "download";
-  button.textContent = "Download media";
-  button.setAttribute("aria-label", "Download media");
+  let button: HTMLButtonElement | null = null;
+  let primary: HTMLElement;
   const activate = (): void => {
     void onDownload();
   };
-  button.addEventListener("click", activate);
+  if (downloadOffer.offer) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = "download";
+    button.textContent = "Download media";
+    button.setAttribute("aria-label", "Download media");
+    button.addEventListener("click", activate);
+    primary = button;
+  } else {
+    const notice = document.createElement("div");
+    notice.className = "notice";
+    notice.setAttribute("role", "status");
+    notice.textContent = downloadOffer.explanation;
+    primary = notice;
+  }
   const minimize = document.createElement("button");
   minimize.type = "button";
   minimize.className = "control minimize";
@@ -71,7 +101,7 @@ export function mountBasicMediaPlayerOverlay(
   dragHandle.className = "control drag";
   dragHandle.textContent = "↕";
   dragHandle.setAttribute("aria-label", "Move media download panel");
-  shadow.append(style, button, minimize, dragHandle);
+  shadow.append(style, primary, minimize, dragHandle);
   document.documentElement.append(host);
 
   let destroyed = false;
@@ -81,7 +111,7 @@ export function mountBasicMediaPlayerOverlay(
     readonly origin: { readonly x: number; readonly y: number };
   } | null = null;
   const applyInteraction = (): void => {
-    button.hidden = interactionState.minimized;
+    primary.hidden = interactionState.minimized;
     minimize.textContent = interactionState.minimized ? "+" : "−";
     minimize.setAttribute(
       "aria-label",
@@ -163,7 +193,7 @@ export function mountBasicMediaPlayerOverlay(
       if (destroyed) return;
       destroyed = true;
       stopDragging();
-      button.removeEventListener("click", activate);
+      button?.removeEventListener("click", activate);
       host.remove();
     },
   });

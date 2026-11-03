@@ -195,13 +195,14 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S183 | DONE | Engine `server_rules::tests` verify schema-v5 exact-host rule persistence across restart, connection-cap and segmentation planning, safe user-agent/header application on a real request, proxy inheritance/override, exact subdomain isolation, and injection/credential rejection; `limits::tests::server_rule_cap_overrides_the_default_host_cap` enforces the resolved host cap. |
 | S184 | DONE | Extension `route-diagnostics.test.ts` verifies concurrent browser/native route probes, proxy-mode and opaque egress mismatch detection, provisional matches, failed/malformed evidence handling, and presentation of the explicit browser proxy/VPN non-inheritance limitation. |
 | S185 | DONE | Engine `site_adapter::tests` verify pinned-key Ed25519 authentication of exact remote bytes before strict schema decoding, schema/semantic adapter versions, bounded exact-host declarative media rules, wrong-key/tamper/signature rejection, and refusal of signed executable or unbounded shapes. |
+| S186 | DONE | Extension `youtube-media-policy.test.ts` and media-overlay tests verify exact YouTube host recognition, fail-closed service-permission/rights/law confirmations, stable withheld explanations and no-universal-guarantee notice, lookalike rejection, non-action rendering, and click-time authorization revalidation. |
 
 ## Milestone evidence log
 
 | Milestone | Command or artifact | Result |
 |---|---|---|
 | M0 | `node scripts/verify-markdown.mjs` | Passed: 194 unique requirement IDs and valid local links. |
-| M0 | `node scripts/verify-status.mjs` | Passed: exactly one status row for each of 186 slices. |
+| M0 | `node scripts/verify-status.mjs` | Passed: exactly one status row for each of 187 slices. |
 | M0 | `powershell -File scripts/rust-quality.ps1` | Passed: format, clippy with warnings denied, and workspace tests. |
 | M0 | `powershell -File scripts/typescript-quality.ps1` | Passed: format, lint, build, typecheck, and two smoke tests. |
 | M0 | [GitHub Actions `Baseline CI`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) | Passed on Windows: documentation, Rust, and TypeScript jobs. |
