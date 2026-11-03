@@ -12,8 +12,11 @@ use thiserror::Error;
 use url::{Host, Url};
 
 use crate::{
+    credentials::{CredentialError, CredentialRef},
     domain::HttpUrl,
-    proxy::{ProxyConfig, ProxyError, configure_proxy_builder},
+    proxy::{
+        ProxyConfig, ProxyError, configure_proxy_builder, configure_proxy_builder_with_credentials,
+    },
 };
 
 const MAX_CONNECTIONS: u8 = 32;
@@ -22,6 +25,8 @@ const MAX_HEADER_VALUE_LENGTH: usize = 4_096;
 const MAX_HEADER_BYTES: usize = 16 * 1_024;
 const MAX_USER_AGENT_LENGTH: usize = 512;
 const MAX_NO_PROXY_RULES: usize = 128;
+type OptionalPasswordLoader<'a> =
+    Option<&'a dyn Fn(&CredentialRef) -> Result<String, CredentialError>>;
 
 #[derive(Debug, Error)]
 pub enum ServerRuleError {
@@ -266,6 +271,26 @@ impl ServerRequestPlan {
     /// # Errors
     /// Returns an error if the selected proxy or default headers cannot be configured.
     pub fn build_client(&self) -> Result<Client, ServerRuleError> {
+        self.build_client_inner(None)
+    }
+
+    /// Builds the bounded HTTP client while resolving proxy authentication only through a
+    /// current-user credential-vault boundary.
+    ///
+    /// # Errors
+    /// Returns an error if the credential cannot be loaded or the selected proxy/default headers
+    /// cannot be configured.
+    pub fn build_client_with_credentials(
+        &self,
+        load_password: &dyn Fn(&CredentialRef) -> Result<String, CredentialError>,
+    ) -> Result<Client, ServerRuleError> {
+        self.build_client_inner(Some(load_password))
+    }
+
+    fn build_client_inner(
+        &self,
+        load_password: OptionalPasswordLoader<'_>,
+    ) -> Result<Client, ServerRuleError> {
         let mut headers = HeaderMap::new();
         for header in &self.headers {
             let name = HeaderName::from_bytes(header.name.as_bytes())
@@ -284,9 +309,12 @@ impl ServerRequestPlan {
             .redirect(Policy::limited(10))
             .connect_timeout(Duration::from_secs(30))
             .default_headers(headers);
-        Ok(configure_proxy_builder(builder, &self.proxy)?
-            .build()
-            .map_err(ProxyError::from)?)
+        let builder = if let Some(load_password) = load_password {
+            configure_proxy_builder_with_credentials(builder, &self.proxy, load_password)?
+        } else {
+            configure_proxy_builder(builder, &self.proxy)?
+        };
+        Ok(builder.build().map_err(ProxyError::from)?)
     }
 }
 
@@ -368,24 +396,29 @@ fn managed_header(name: &HeaderName) -> bool {
 }
 
 fn validate_proxy(proxy: &ProxyConfig) -> Result<(), ServerRuleError> {
-    let ProxyConfig::Manual(manual) = proxy else {
-        return Ok(());
-    };
-    for value in [manual.http_proxy.as_ref(), manual.https_proxy.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        let parsed = Url::parse(value.as_str()).map_err(|_| ServerRuleError::UnsafeProxyUrl)?;
-        if !parsed.username().is_empty()
-            || parsed.password().is_some()
-            || parsed.query().is_some()
-            || parsed.fragment().is_some()
-        {
-            return Err(ServerRuleError::UnsafeProxyUrl);
+    let no_proxy = match proxy {
+        ProxyConfig::Manual(manual) => {
+            for value in [manual.http_proxy.as_ref(), manual.https_proxy.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                let parsed =
+                    Url::parse(value.as_str()).map_err(|_| ServerRuleError::UnsafeProxyUrl)?;
+                if !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                    || parsed.query().is_some()
+                    || parsed.fragment().is_some()
+                {
+                    return Err(ServerRuleError::UnsafeProxyUrl);
+                }
+            }
+            &manual.no_proxy
         }
-    }
-    if manual.no_proxy.len() > MAX_NO_PROXY_RULES
-        || manual.no_proxy.iter().any(|rule| {
+        ProxyConfig::Socks(socks) => &socks.no_proxy,
+        ProxyConfig::System | ProxyConfig::Direct => return Ok(()),
+    };
+    if no_proxy.len() > MAX_NO_PROXY_RULES
+        || no_proxy.iter().any(|rule| {
             rule.trim() != rule
                 || rule.is_empty()
                 || rule.len() > 253
@@ -530,6 +563,7 @@ mod tests {
                 HttpUrl::parse("http://user:password@proxy.test:8080").expect("proxy URL"),
             ),
             https_proxy: None,
+            authentication: None,
             no_proxy: vec![],
         });
         assert!(

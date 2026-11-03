@@ -143,3 +143,20 @@ cargo test --locked -p download-manager-engine --test wan_regression_s169
 The committed fixture establishes a deterministic profile-and-fix plus fairness contract. The
 release-lab run must use the installed product wrapper and controlled network shaper to confirm the
 same regression is absent in the packaged transfer path.
+
+## AC-01 installed 10 GiB Auto gate
+
+The `.github/workflows/ac01-acceptance.yml` workflow deliberately targets only the dedicated
+`release-benchmark` runner. That runner supplies two immutable lab inputs:
+
+- `C:\release-lab\ac01-plan.json`, a normal paired-runner plan whose scenario is
+  `ac01-range-10gib-auto` and whose installed candidate wrapper receives `--mode Auto`;
+- `C:\release-lab\ac01-manifest.json`, an operator record binding the controlled range-capable
+  fixture's exact 10 GiB length and SHA-256 to the installed stable IDM and candidate run.
+
+After at least ten randomized pairs, `scripts/validate-ac01-evidence.mjs` rejects the evidence
+unless every IDM and candidate output is exactly 10 GiB, every hash equals the fixture hash, the
+candidate median goodput ratio is at least 1.00, and paired median regression does not exceed 3%.
+The workflow uploads the copied inputs, raw paired report, Markdown report, and verdict together.
+Running only `scripts/validate-ac01-evidence.test.mjs` proves the fail-closed evidence contract; it
+does not claim that an installed-product benchmark occurred.

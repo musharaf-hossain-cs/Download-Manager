@@ -1,0 +1,77 @@
+name: AC-01 installed 10 GiB Auto benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate AC-01 evidence contract
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Prove passing and fail-closed evidence cases
+        run: node scripts/validate-ac01-evidence.test.mjs
+
+  benchmark:
+    name: Installed IDM versus Download Manager
+    needs: contract
+    runs-on: [self-hosted, windows, x64, release-benchmark]
+    timeout-minutes: 1440
+    env:
+      AC01_MANIFEST_PATH: C:\release-lab\ac01-manifest.json
+      AC01_PLAN_PATH: C:\release-lab\ac01-plan.json
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install 1.99.1 --profile minimal
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Copy immutable lab inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-results -Force | Out-Null
+          Copy-Item -LiteralPath $env:AC01_MANIFEST_PATH -Destination test-results/ac01-manifest.json
+          Copy-Item -LiteralPath $env:AC01_PLAN_PATH -Destination test-results/ac01-plan.json
+      - name: Run paired installed-product benchmark
+        shell: pwsh
+        run: |
+          cargo run --locked -p download-manager-engine --bin download-manager-benchmark -- `
+            test-results/ac01-plan.json test-results/ac01-paired
+      - name: Enforce 10 GiB Auto hash and performance gate
+        shell: pwsh
+        run: |
+          node scripts/validate-ac01-evidence.mjs `
+            test-results/ac01-manifest.json `
+            test-results/ac01-plan.json `
+            test-results/ac01-paired.json |
+            Out-File -FilePath test-results/ac01-verdict.json -Encoding utf8
+      - name: Upload immutable acceptance evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ac01-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/ac01-manifest.json
+            test-results/ac01-plan.json
+            test-results/ac01-paired.json
+            test-results/ac01-paired.md
+            test-results/ac01-verdict.json
+          if-no-files-found: error
+          retention-days: 30

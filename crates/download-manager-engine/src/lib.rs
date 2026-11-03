@@ -70,6 +70,7 @@ pub mod transfer_quota;
 pub mod update_activation;
 pub mod update_staging;
 pub mod update_verification;
+pub mod zip_preview;
 
 #[cfg(test)]
 pub(crate) mod test_support;

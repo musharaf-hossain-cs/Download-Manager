@@ -333,6 +333,13 @@ type(scope): complete SNNN short description
 | S184 | Q1 | Browser/native route mismatch diagnostics | Opaque proxy/egress comparison plus visible non-inheritance limitation | S051, S083, S134, S180 |
 | S185 | Q2 | Signed data-only site-adapter rules | Pinned-key rejection; version/schema bounds; no executable rule shape | S156, S180 |
 | S186 | Q2 | YouTube media offer policy gate | Permission/rights/law confirmation; visible withheld reason; click-time recheck | S102–S105, S120, S180 |
+| S187 | Q2 | Current-user authenticated CLI IPC transport | Vault secret never enters discovery state; wrong user/secret invokes no engine action | S142–S144, S180 |
+| S188 | Q1 | Dedicated security threat model | Every SEC-001 actor has mitigations, residual risk, owner, and release review rule | S004, S180 |
+| S189 | Q2 | SOCKS4/5 routing and proxy authentication | Real SOCKS4/SOCKS5-auth handshakes; vault reference and no-proxy cases | S051, S180 |
+| S190 | Q2 | Bounded remote ZIP central-directory preview | Exact range/validator checks; classic ZIP listing and format/size/count refusal cases | S021, S180 |
+| S191 | Q2 | Windows 10 and supported Windows 11 x64 compatibility gate | Exact-build installed-product matrix emits immutable pass/fail evidence | S152, S180 |
+| S192 | Q1 | Windows 11 ARM x64-emulation gate | Exact ARM build runs the packaged x64 install/launch/uninstall smoke | S191 |
+| S193 | Q2 | Installed 10 GiB Auto acceptance gate | Ten paired installed-product runs; exact hashes and parity thresholds enforced | S162–S169, S180 |
 
 ---
 
@@ -350,4 +357,4 @@ Performance, compatibility, fuzzing and fault campaigns may reveal unknown failu
 
 ## 7. Release rule
 
-v1 may be released only after S000–S182 and mandatory continuation slices are `DONE`, all P0/P1 requirements are traced, the IDM parity benchmark passes, browser/media matrices pass, the 24-hour soak succeeds, and the signed installer/update/rollback path is verified.
+v1 may be released only after S000–S193 and mandatory continuation slices are `DONE`, all P0/P1 requirements are traced, the IDM parity benchmark passes, browser/media/platform matrices pass, the 24-hour soak succeeds, and the signed installer/update/rollback path is verified. A repository-side validation contract is not a substitute for the required external runner artifact.

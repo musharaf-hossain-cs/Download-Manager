@@ -1,0 +1,67 @@
+name: Supported Windows compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate compatibility matrix contract
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+      - name: Verify fail-closed platform contract
+        run: node scripts/platform-compatibility.test.mjs
+
+  installed-product:
+    name: ${{ matrix.profile }}
+    needs: contract
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: windows-10-22h2-x64
+            runner: '["self-hosted","windows","x64","windows-10-22h2"]'
+          - profile: windows-11-23h2-x64
+            runner: '["self-hosted","windows","x64","windows-11-23h2"]'
+          - profile: windows-11-24h2-x64
+            runner: '["self-hosted","windows","x64","windows-11-24h2"]'
+          - profile: windows-11-25h2-x64
+            runner: '["self-hosted","windows","x64","windows-11-25h2"]'
+          - profile: windows-11-26h2-x64
+            runner: '["self-hosted","windows","x64","windows-11-26h2"]'
+          - profile: windows-11-26h1-arm64-x64-emulation
+            runner: '["self-hosted","windows","arm64","windows-11-26h1","x64-emulation"]'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain and x64 target
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup target add x86_64-pc-windows-msvc --toolchain 1.99.1
+      - name: Build, install, and launch x64 package
+        shell: pwsh
+        run: ./scripts/test-platform-compatibility.ps1 -Profile '${{ matrix.profile }}'
+      - name: Upload immutable compatibility evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: platform-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/platform-${{ matrix.profile }}.json
+          if-no-files-found: error
+          retention-days: 30

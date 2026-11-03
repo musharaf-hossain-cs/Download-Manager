@@ -2,6 +2,7 @@
 param(
     [string] $OutputDirectory,
     [string] $BinaryDirectory,
+    [string] $TargetTriple = 'x86_64-pc-windows-msvc',
     [switch] $SkipBuild
 )
 
@@ -10,14 +11,35 @@ Set-StrictMode -Version Latest
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repositoryRoot 'dist' }
-if (-not $BinaryDirectory) { $BinaryDirectory = Join-Path $repositoryRoot 'target\release' }
+if ($TargetTriple -cne 'x86_64-pc-windows-msvc') {
+    throw "The Windows x64 package requires target triple 'x86_64-pc-windows-msvc'."
+}
+$hostLine = rustc -vV | Where-Object { $_ -like 'host: *' } | Select-Object -First 1
+if (-not $hostLine) {
+    throw 'The Rust host target could not be detected.'
+}
+$hostTriple = $hostLine.Substring('host: '.Length).Trim()
+$crossCompiling = $hostTriple -cne $TargetTriple
+if (-not $BinaryDirectory) {
+    $BinaryDirectory = if ($crossCompiling) {
+        Join-Path $repositoryRoot "target\$TargetTriple\release"
+    } else {
+        Join-Path $repositoryRoot 'target\release'
+    }
+}
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $BinaryDirectory = [IO.Path]::GetFullPath($BinaryDirectory)
 
 if (-not $SkipBuild) {
     Push-Location $repositoryRoot
     try {
-        cargo build --locked --release -p download-manager-cli -p download-manager-native-host
+        $buildArguments = @('build', '--locked', '--release')
+        if ($crossCompiling) { $buildArguments += @('--target', $TargetTriple) }
+        $buildArguments += @(
+            '-p', 'download-manager-cli',
+            '-p', 'download-manager-native-host'
+        )
+        cargo @buildArguments
         if ($LASTEXITCODE -ne 0) { throw 'The release executable build failed.' }
     } finally {
         Pop-Location

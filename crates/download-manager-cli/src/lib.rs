@@ -7,7 +7,11 @@ use download_manager_engine::{
     ipc::JobAction,
     state::DownloadState,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+mod local_ipc;
+
+pub use local_ipc::{AuthenticatedIpcBackend, LocalIpcServer};
 
 pub const CLI_CONTRACT_VERSION: u16 = 1;
 
@@ -57,7 +61,7 @@ pub struct AddRequest {
     pub queue: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobView {
     pub id: JobId,
     pub state: DownloadState,
@@ -66,7 +70,7 @@ pub struct JobView {
     pub total_bytes: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueueStart {
     pub name: String,
     pub started_jobs: u32,
@@ -217,7 +221,7 @@ struct ErrorBody<'a> {
 /// Parses and executes one CLI invocation against an authenticated engine-client boundary.
 pub fn run<B, I, S, O, E>(args: I, backend: &mut B, stdout: &mut O, stderr: &mut E) -> CliExit
 where
-    B: CliBackend,
+    B: CliBackend + ?Sized,
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
     O: Write,
@@ -236,7 +240,7 @@ pub fn run_with_waiter<B, I, S, O, E, W>(
     stderr: &mut E,
 ) -> CliExit
 where
-    B: CliBackend,
+    B: CliBackend + ?Sized,
     I: IntoIterator<Item = S>,
     S: Into<OsString>,
     O: Write,
@@ -543,7 +547,7 @@ fn emit_queue<O: Write>(json: bool, quiet: bool, queue: &QueueStart, stdout: &mu
     }
 }
 
-fn wait_for_job<B: CliBackend, W: WaitControl, E: Write>(
+fn wait_for_job<B: CliBackend + ?Sized, W: WaitControl, E: Write>(
     backend: &mut B,
     waiter: &mut W,
     mut job: JobView,

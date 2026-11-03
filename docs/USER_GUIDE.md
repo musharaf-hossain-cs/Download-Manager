@@ -54,6 +54,9 @@ the Chrome, Edge, and Firefox host registrations.
 - Pause preserves the last durable safe offset. Resume revalidates the remote identity before
   appending; if the server object changed or no longer supports the required range, restart rather
   than combining different bytes.
+- For a ZIP with a known length and confirmed range support, preview lists at most 2,048 classic
+  single-disk entries from a bounded central directory without downloading the whole archive.
+  ZIP64, multi-disk, malformed, or uncooperative servers show preview unavailable.
 - Cancel stops active work. Removing a history record and deleting a completed file are separate
   actions and require the exact target to be confirmed.
 
@@ -81,14 +84,17 @@ continues only when the refreshed manifest describes the same media object and t
   an automatic resume.
 - A server rule matches one exact hostname and can override that host's connection cap,
   user-agent and non-sensitive request headers, disable segmentation, or select system, direct, or
-  manual HTTP(S) proxy routing. Subdomains do not inherit a parent rule. Authorization, cookie,
-  proxy-authorization, framing, range, and host headers are not accepted as durable overrides.
+  manual HTTP(S)/SOCKS4/SOCKS5 proxy routing. SOCKS5 and HTTP proxy passwords stay in the current
+  user's Windows credential vault; durable rules contain only a credential reference. Subdomains
+  do not inherit a parent rule. Authorization, cookie, proxy-authorization, framing, range, and
+  host headers are not accepted as durable overrides.
 
 ## Command line
 
-The packaged executable exposes a versioned automation contract. The connected release backend
-must be available for job commands; transport-unavailable is a distinct error, not a successful
-queue operation.
+The packaged executable exposes a versioned automation contract. Job commands use bounded
+loopback IPC authenticated by a random secret in the current Windows user's credential vault; the
+discovery file contains no secret. The connected release backend must be available;
+transport-unavailable is a distinct error, not a successful queue operation.
 
 ```powershell
 download-manager.exe --help

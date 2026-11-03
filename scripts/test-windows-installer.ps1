@@ -83,7 +83,6 @@ try {
     $buildArguments = @{ OutputDirectory = $artifactRoot }
     if ($SkipBuild) {
         $buildArguments.SkipBuild = $true
-        $buildArguments.BinaryDirectory = Join-Path $repositoryRoot 'target\release'
     }
     $archivePath = & $buildScript @buildArguments
     if (@($archivePath).Count -ne 1 -or -not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {

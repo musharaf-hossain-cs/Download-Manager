@@ -318,6 +318,8 @@ dependencies = [
  "download-manager-engine",
  "serde",
  "serde_json",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]

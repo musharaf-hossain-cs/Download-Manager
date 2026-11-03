@@ -22,6 +22,7 @@
     "test:release-candidate-contract": "node scripts/release-candidate-journey.test.mjs",
     "test:review-soak": "node scripts/review-soak.test.mjs",
     "test:soak-contract": "node scripts/soak-contract.test.mjs",
+    "test:threat-model": "node scripts/threat-model.test.mjs",
     "typecheck": "pnpm --recursive typecheck",
     "verify:docs": "node scripts/verify-markdown.mjs",
     "verify:traceability": "node scripts/verify-traceability.mjs",
