@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "slice": "S182",
+  "status": "passed",
+  "started_at_utc": "2026-11-03T04:30:46.2109816+00:00",
+  "finished_at_utc": "2026-11-03T04:31:38.9081655+00:00",
+  "duration_seconds": 52.697,
+  "environment": {
+    "execution": "isolated current-runner composed contract gate",
+    "hosted_windows_workflow": ".github/workflows/release-candidate.yml",
+    "supported_windows_vm_matrix_claimed": false
+  },
+  "evidence_boundaries": [
+    "No installed browser capture is exercised.",
+    "The production native host AddDownload path remains not_ready.",
+    "No packaged Windows update activation adapter is exercised.",
+    "This is not a Windows 10/11 supported-OS clean-VM matrix claim.",
+    "S180 requirement blockers and v1 release-readiness gates remain unchanged."
+  ],
+  "stages": [
+    {
+      "name": "install",
+      "status": "passed",
+      "command": "powershell -File scripts/test-windows-installer.ps1 [-SkipBuild] -BeforeUninstall <journey>",
+      "coverage": "Built and installed the current-user package in an isolated profile; launched both packaged executables; verified and repaired native-host registration."
+    },
+    {
+      "name": "capture",
+      "status": "passed",
+      "command": "pnpm --filter @download-manager/browser-extension exec vitest run test/link-handoff.test.ts",
+      "coverage": "Adapter contract only: acknowledged handoff, cancel-after-accept, rejection/offline fallback, timeout, and duplicate suppression. No installed browser is launched."
+    },
+    {
+      "name": "resume",
+      "status": "passed",
+      "command": "cargo test --locked -p download-manager-engine same_object_resumes_only_the_missing_range",
+      "coverage": "Production resume path validates remote identity and requests only the missing suffix from a local HTTP fixture."
+    },
+    {
+      "name": "licensed_media",
+      "status": "passed",
+      "command": "cargo test --locked -p download-manager-engine --test media_corpus_s173 --test media_corpus_s174",
+      "coverage": "CC0 progressive, HLS, DASH, subtitle, live-window, hash, duration, and synchronization fixtures."
+    },
+    {
+      "name": "update",
+      "status": "passed",
+      "command": "cargo test --locked -p download-manager-engine update_activation::tests",
+      "coverage": "In-process signed staging/activation contracts cover successful activation and forced rollback while preserving paused jobs, queues, offsets, and partials."
+    },
+    {
+      "name": "uninstall",
+      "status": "passed",
+      "command": "packaging/windows/uninstall.ps1 -UserData Keep; reinstall; -UserData Remove",
+      "coverage": "Existing package smoke verifies both explicit data choices remove app/browser integration while preserving completed downloads."
+    }
+  ],
+  "failure": null
+}

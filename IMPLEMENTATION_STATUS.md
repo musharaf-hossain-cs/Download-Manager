@@ -1,7 +1,7 @@
 # Implementation Status
 
 - Last updated: 2026-11-03
-- Current milestone: Milestone 11 — Hardening, performance and release (next slice: S182)
+- Current milestone: Milestone 11 — Hardening, performance and release (complete; release blockers remain in `docs/TRACEABILITY.md`)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
 
@@ -191,7 +191,7 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S179 | DONE | Desktop `release-accessibility-audit-s179.test.ts` passes English/Bangla semantic scans and the complete primary keyboard flow, preserves visible high-contrast focus and non-color state cues, and verifies 30% text expansion across 100–250% DPI, 100–225% text scaling, and multi-monitor transitions without losing controls or the download region. |
 | S180 | DONE | `pnpm verify:traceability` exhaustively reconciles all 170 explicit P0/P1 requirements and 16 v1 acceptance criteria with exactly one final audit row, rejects missing/duplicate/unknown/placeholder evidence, and reports 129 Verified, 46 Implemented, and 11 explicitly Blocked entries; the same gate runs in local fast verification and documentation CI. |
 | S181 | DONE | `docs/USER_GUIDE.md`, `docs/PRIVACY.md`, and `docs/THIRD_PARTY_NOTICES.md` cover install/browser repair, download/media/CLI use, troubleshooting, local data/network/retention choices, protected-media boundaries, dependency licenses, and uninstall semantics; `node scripts/release-docs.test.mjs` verifies all local links/required disclosures, the live CLI help contract, and every documented packaging/inventory command. |
-| S182 | TODO | — |
+| S182 | DONE | `scripts/release-candidate-journey.ps1` completed the ordered install→capture-contract→resume→licensed-media→update success/rollback→uninstall gate in 52.697 seconds and wrote `docs/evidence/s182-release-candidate-journey.json`; the contract test and hosted-Windows workflow preserve the explicit boundaries that this is an isolated current-runner composed gate, not installed-browser capture, packaged update activation, or a supported Windows 10/11 VM matrix. |
 
 ## Milestone evidence log
 
@@ -218,4 +218,5 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | M4 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks, Rust format/clippy and 75 engine tests plus CLI/native-host tests, and TypeScript format/lint/build/typecheck with 76 desktop and 3 browser tests. |
 | M5 | `powershell -File scripts/verify.ps1` with the pinned Rust GNU toolchain selected | Passed: documentation/status checks; Rust format/clippy plus 75 engine and 8 CLI/native-host tests (one helper ignored); TypeScript format/lint/build/typecheck plus 86 desktop and 51 browser-extension tests. |
 | M11 | Pinned MSVC `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace --locked`; `scripts/typescript-quality.ps1`; `pnpm test:browser-regression` | Passed: 7 LAN/WAN integration suites (9 tests), the complete Rust workspace, 129 extension tests, 99 desktop tests, and the 42-test browser regression command; measured correctness-preserving LAN/WAN fixes, shaped/adaptive evidence, and no warnings. |
+| M11 | `pnpm test:release-candidate-contract`; `docs/evidence/s182-release-candidate-journey.json` | Passed: ordered six-stage composed release-candidate gate and explicit non-claim boundaries; Milestone 11 slices are complete while S180 requirement and v1 release-readiness blockers remain unchanged. |
 

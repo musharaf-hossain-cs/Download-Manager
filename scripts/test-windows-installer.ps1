@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([switch] $SkipBuild)
+param(
+    [switch] $SkipBuild,
+    [scriptblock] $BeforeUninstall
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -244,6 +247,10 @@ try {
     Test-NativeConnection $hostPath @($origin) $chromiumExtensionId 'repaired Edge'
     Test-NativeConnection $hostPath @($firefoxManifestPath, $firefoxExtensionId) `
         $firefoxExtensionId 'repaired Firefox'
+
+    if ($BeforeUninstall) {
+        & $BeforeUninstall
+    }
 
     $uninstallPath = Join-Path $installRoot 'uninstall.ps1'
     $userDataParameter = (Get-Command $uninstallPath).Parameters['UserData']
