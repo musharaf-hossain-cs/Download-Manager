@@ -10,7 +10,8 @@ update-host, or support service it operates.
 
 The app may store download URLs and sanitized remote identity, filenames and destinations, byte and
 segment checkpoints, queue/category/schedule settings, progress and state events, browser/profile
-labels, media track choices, retry/error results, and redacted operational logs. Settings, history,
+labels, media track choices, retry/error results, per-server
+host/connection/header/segmentation/proxy rules, and redacted operational logs. Settings, history,
 and partial state are kept under `%LOCALAPPDATA%\DownloadManager`; installed programs live under
 `%LOCALAPPDATA%\Programs\Download Manager`. Completed downloads are stored only at destinations the
 user selects.
@@ -18,6 +19,9 @@ user selects.
 HTTP/proxy credentials and other reusable secrets are stored through the current Windows user's
 credential protection rather than in the SQLite database or logs. Request context is bounded,
 expires, and is redacted before durable logging or portable export.
+
+Durable per-server rules reject authorization, cookie, and proxy-authorization headers and reject
+proxy URLs containing credentials. Store only non-sensitive custom header values in these rules.
 
 ## Network activity
 

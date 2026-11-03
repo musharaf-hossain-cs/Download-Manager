@@ -170,10 +170,30 @@ impl ConnectionLimiter {
     /// Panics if another thread poisoned the internal limiter lock.
     #[must_use]
     pub fn try_acquire(&self, host: &str) -> Option<ConnectionPermit> {
+        self.try_acquire_with_host_limit(host, None)
+    }
+
+    /// Attempts to reserve one connection with an optional server-rule cap.
+    ///
+    /// The global cap always applies. When present, the exact-host override replaces the default
+    /// per-host cap for this decision.
+    ///
+    /// # Panics
+    /// Panics if another thread poisoned the internal limiter lock.
+    #[must_use]
+    pub fn try_acquire_with_host_limit(
+        &self,
+        host: &str,
+        host_limit: Option<u32>,
+    ) -> Option<ConnectionPermit> {
         let normalized = host.to_ascii_lowercase();
         let mut state = self.state.lock().expect("connection limiter lock");
         let host_active = state.hosts.get(&normalized).copied().unwrap_or(0);
-        if state.active_global >= state.global_limit || host_active >= state.per_host_limit {
+        let effective_host_limit = host_limit.unwrap_or(state.per_host_limit);
+        if effective_host_limit == 0
+            || state.active_global >= state.global_limit
+            || host_active >= effective_host_limit
+        {
             return None;
         }
         state.active_global += 1;
@@ -391,6 +411,28 @@ mod tests {
         permits.clear();
         assert_eq!(limiter.snapshot().active_global, 0);
         assert!(limiter.try_acquire("example.test").is_some());
+    }
+
+    #[test]
+    fn server_rule_cap_overrides_the_default_host_cap() {
+        let limiter = ConnectionLimiter::new(8, 6).expect("limiter");
+        let first = limiter
+            .try_acquire_with_host_limit("example.test", Some(2))
+            .expect("first");
+        let second = limiter
+            .try_acquire_with_host_limit("EXAMPLE.TEST", Some(2))
+            .expect("second");
+        assert!(
+            limiter
+                .try_acquire_with_host_limit("example.test", Some(2))
+                .is_none()
+        );
+        assert!(
+            limiter
+                .try_acquire_with_host_limit("other.test", Some(2))
+                .is_some()
+        );
+        drop((first, second));
     }
 
     #[test]

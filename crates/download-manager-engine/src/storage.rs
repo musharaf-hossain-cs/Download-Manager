@@ -19,6 +19,7 @@ use crate::{
     },
     redaction::redact_secrets,
     request_context::{RequestContext, RequestContextError, sanitize_durable_url},
+    server_rules::{HeaderOverride, ServerRule, ServerRuleError, request_host},
     state::{DownloadEvent, DownloadState, StateTransition, TransitionError, reduce_state},
 };
 
@@ -38,6 +39,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 4,
         sql: include_str!("../migrations/004_named_queues.sql"),
+    },
+    Migration {
+        version: 5,
+        sql: include_str!("../migrations/005_server_rules.sql"),
     },
 ];
 
@@ -63,6 +68,10 @@ pub enum StorageError {
     InvalidQueueName,
     #[error("queue order must contain every queue exactly once")]
     InvalidQueueOrder,
+    #[error("server rule is invalid: {0}")]
+    ServerRule(#[from] ServerRuleError),
+    #[error("server rule serialization failed: {0}")]
+    ServerRuleSerialization(#[from] serde_json::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -630,6 +639,86 @@ impl Database {
             .transpose()
     }
 
+    /// Inserts or replaces one validated exact-host server rule.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if serialization or durable persistence fails.
+    pub fn upsert_server_rule(&mut self, rule: &ServerRule) -> Result<(), StorageError> {
+        let headers = serde_json::to_string(rule.headers())?;
+        let proxy = rule
+            .proxy_override()
+            .map(serde_json::to_string)
+            .transpose()?;
+        self.connection.execute(
+            "INSERT INTO server_rules \
+             (host, connection_cap, user_agent, headers_json, disable_segmentation, proxy_json) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+             ON CONFLICT(host) DO UPDATE SET \
+             connection_cap=excluded.connection_cap, user_agent=excluded.user_agent, \
+             headers_json=excluded.headers_json, \
+             disable_segmentation=excluded.disable_segmentation, proxy_json=excluded.proxy_json",
+            params![
+                rule.host(),
+                rule.connection_cap(),
+                rule.user_agent(),
+                headers,
+                rule.disables_segmentation(),
+                proxy,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Loads the exact-host rule for one HTTP(S) URL.
+    ///
+    /// Subdomains do not inherit a parent-host rule implicitly.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for invalid persisted data or SQLite failures.
+    pub fn server_rule_for_url(&self, url: &HttpUrl) -> Result<Option<ServerRule>, StorageError> {
+        let host = request_host(url)?;
+        self.connection
+            .query_row(
+                "SELECT host, connection_cap, user_agent, headers_json, \
+                 disable_segmentation, proxy_json FROM server_rules WHERE host=?1",
+                [host],
+                row_to_server_rule,
+            )
+            .optional()?
+            .map(server_rule_from_row)
+            .transpose()
+    }
+
+    /// Lists all server rules in stable host order.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for invalid persisted data or SQLite failures.
+    pub fn list_server_rules(&self) -> Result<Vec<ServerRule>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT host, connection_cap, user_agent, headers_json, \
+             disable_segmentation, proxy_json FROM server_rules ORDER BY host",
+        )?;
+        statement
+            .query_map([], row_to_server_rule)?
+            .map(|row| {
+                row.map_err(StorageError::from)
+                    .and_then(server_rule_from_row)
+            })
+            .collect()
+    }
+
+    /// Deletes an exact-host server rule after normalizing the supplied host.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for an invalid host or SQLite failure.
+    pub fn delete_server_rule(&mut self, host: &str) -> Result<bool, StorageError> {
+        let normalized = ServerRule::new(host, None, None, Vec::new(), false, None)?;
+        Ok(self.connection.execute(
+            "DELETE FROM server_rules WHERE host=?1",
+            [normalized.host()],
+        )? > 0)
+    }
+
     /// Deletes vault secrets and database rows for every expired request context.
     ///
     /// The deletion callback must be idempotent. A callback failure leaves all database rows in
@@ -1081,6 +1170,43 @@ fn row_to_request_context(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestCo
     ))
 }
 
+struct ServerRuleRow {
+    host: String,
+    connection_cap: Option<u8>,
+    user_agent: Option<String>,
+    headers_json: String,
+    disable_segmentation: bool,
+    proxy_json: Option<String>,
+}
+
+fn row_to_server_rule(row: &rusqlite::Row<'_>) -> rusqlite::Result<ServerRuleRow> {
+    Ok(ServerRuleRow {
+        host: row.get(0)?,
+        connection_cap: row.get(1)?,
+        user_agent: row.get(2)?,
+        headers_json: row.get(3)?,
+        disable_segmentation: row.get(4)?,
+        proxy_json: row.get(5)?,
+    })
+}
+
+fn server_rule_from_row(row: ServerRuleRow) -> Result<ServerRule, StorageError> {
+    let headers = serde_json::from_str::<Vec<HeaderOverride>>(&row.headers_json)?;
+    let proxy = row
+        .proxy_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
+    Ok(ServerRule::new(
+        row.host,
+        row.connection_cap,
+        row.user_agent,
+        headers,
+        row.disable_segmentation,
+        proxy,
+    )?)
+}
+
 fn request_context_from_sql_row(row: RequestContextRow) -> rusqlite::Result<RequestContext> {
     request_context_from_row(row).map_err(sql_conversion_error)
 }
@@ -1309,10 +1435,10 @@ mod tests {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("state.sqlite");
         let database = Database::open(&path).expect("create database");
-        assert_eq!(database.schema_version().expect("version"), 4);
+        assert_eq!(database.schema_version().expect("version"), 5);
         drop(database);
         let reopened = Database::open(&path).expect("reopen database");
-        assert_eq!(reopened.schema_version().expect("version"), 4);
+        assert_eq!(reopened.schema_version().expect("version"), 5);
         assert!(reopened.migration_backup().is_none());
     }
 

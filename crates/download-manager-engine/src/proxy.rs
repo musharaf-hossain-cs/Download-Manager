@@ -1,19 +1,25 @@
 //! HTTP(S) proxy client configuration and no-proxy matching.
 
-use reqwest::{Proxy, blocking::Client};
+use reqwest::{
+    Proxy,
+    blocking::{Client, ClientBuilder},
+};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
 use crate::domain::HttpUrl;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ManualProxyConfig {
     pub http_proxy: Option<HttpUrl>,
     pub https_proxy: Option<HttpUrl>,
     pub no_proxy: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "mode", content = "config")]
 pub enum ProxyConfig {
     /// Uses the platform/environment proxy discovery supported by the HTTP stack.
     System,
@@ -33,10 +39,23 @@ pub enum ProxyError {
 /// # Errors
 /// Returns an error when the underlying HTTP client cannot be configured.
 pub fn build_proxy_client(config: &ProxyConfig) -> Result<Client, ProxyError> {
-    let builder = Client::builder();
+    Ok(configure_proxy_builder(Client::builder(), config)?.build()?)
+}
+
+/// Applies system, direct, or per-scheme manual proxy routing to an existing client builder.
+///
+/// This lets request policies add timeouts and default headers without bypassing the selected
+/// proxy route.
+///
+/// # Errors
+/// Returns an error when the underlying proxy configuration cannot be attached.
+pub fn configure_proxy_builder(
+    builder: ClientBuilder,
+    config: &ProxyConfig,
+) -> Result<ClientBuilder, ProxyError> {
     match config {
-        ProxyConfig::System => Ok(builder.build()?),
-        ProxyConfig::Direct => Ok(builder.no_proxy().build()?),
+        ProxyConfig::System => Ok(builder),
+        ProxyConfig::Direct => Ok(builder.no_proxy()),
         ProxyConfig::Manual(manual) => {
             let web_proxy = manual
                 .http_proxy
@@ -57,7 +76,7 @@ pub fn build_proxy_client(config: &ProxyConfig) -> Result<Client, ProxyError> {
                     _ => None,
                 }
             });
-            Ok(builder.no_proxy().proxy(proxy).build()?)
+            Ok(builder.no_proxy().proxy(proxy))
         }
     }
 }

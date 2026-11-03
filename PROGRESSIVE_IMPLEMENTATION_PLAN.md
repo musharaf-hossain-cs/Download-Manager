@@ -325,6 +325,12 @@ type(scope): complete SNNN short description
 | S181 | Q2 | User guide, privacy, notices and troubleshooting | Links/commands verified cleanly | S149, S180 |
 | S182 | Q2 | Clean-VM release-candidate journey | Install→capture→resume→media→update→uninstall | S181 |
 
+### Post-audit requirement completions
+
+| Slice | Q | Atomic deliverable | Focused test / Definition of Done | Depends |
+|---|---:|---|---|---|
+| S183 | Q2 | Persisted per-server transfer rules | Restart persistence; exact-host cap/header/segmentation/proxy plan | S039, S051, S180 |
+
 ---
 
 ## 6. Empirical continuation policy

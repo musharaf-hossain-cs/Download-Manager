@@ -79,6 +79,10 @@ continues only when the refreshed manifest describes the same media object and t
 - Global/per-job speed limits, per-host connection caps, metered-network policy, battery policy,
   and low-disk thresholds can reduce or pause activity. A user pause always takes precedence over
   an automatic resume.
+- A server rule matches one exact hostname and can override that host's connection cap,
+  user-agent and non-sensitive request headers, disable segmentation, or select system, direct, or
+  manual HTTP(S) proxy routing. Subdomains do not inherit a parent rule. Authorization, cookie,
+  proxy-authorization, framing, range, and host headers are not accepted as durable overrides.
 
 ## Command line
 
