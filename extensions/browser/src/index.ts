@@ -14,6 +14,7 @@ export const extensionIdentity: ExtensionIdentity = Object.freeze({
 
 export * from "./protocol.js";
 export * from "./connection-health.js";
+export * from "./route-diagnostics.js";
 export * from "./link-handoff.js";
 export * from "./capture-rules.js";
 export * from "./site-rules.js";

@@ -193,13 +193,14 @@ A slice is marked `DONE` only after its focused checks and all established fast 
 | S181 | DONE | `docs/USER_GUIDE.md`, `docs/PRIVACY.md`, and `docs/THIRD_PARTY_NOTICES.md` cover install/browser repair, download/media/CLI use, troubleshooting, local data/network/retention choices, protected-media boundaries, dependency licenses, and uninstall semantics; `node scripts/release-docs.test.mjs` verifies all local links/required disclosures, the live CLI help contract, and every documented packaging/inventory command. |
 | S182 | DONE | `scripts/release-candidate-journey.ps1` completed the ordered install→capture-contract→resume→licensed-media→update success/rollback→uninstall gate in 52.697 seconds and wrote `docs/evidence/s182-release-candidate-journey.json`; the contract test and hosted-Windows workflow preserve the explicit boundaries that this is an isolated current-runner composed gate, not installed-browser capture, packaged update activation, or a supported Windows 10/11 VM matrix. |
 | S183 | DONE | Engine `server_rules::tests` verify schema-v5 exact-host rule persistence across restart, connection-cap and segmentation planning, safe user-agent/header application on a real request, proxy inheritance/override, exact subdomain isolation, and injection/credential rejection; `limits::tests::server_rule_cap_overrides_the_default_host_cap` enforces the resolved host cap. |
+| S184 | DONE | Extension `route-diagnostics.test.ts` verifies concurrent browser/native route probes, proxy-mode and opaque egress mismatch detection, provisional matches, failed/malformed evidence handling, and presentation of the explicit browser proxy/VPN non-inheritance limitation. |
 
 ## Milestone evidence log
 
 | Milestone | Command or artifact | Result |
 |---|---|---|
 | M0 | `node scripts/verify-markdown.mjs` | Passed: 194 unique requirement IDs and valid local links. |
-| M0 | `node scripts/verify-status.mjs` | Passed: exactly one status row for each of 184 slices. |
+| M0 | `node scripts/verify-status.mjs` | Passed: exactly one status row for each of 185 slices. |
 | M0 | `powershell -File scripts/rust-quality.ps1` | Passed: format, clippy with warnings denied, and workspace tests. |
 | M0 | `powershell -File scripts/typescript-quality.ps1` | Passed: format, lint, build, typecheck, and two smoke tests. |
 | M0 | [GitHub Actions `Baseline CI`](https://github.com/musharaf-hossain-cs/Download-Manager/actions/runs/40199752939) | Passed on Windows: documentation, Rust, and TypeScript jobs. |
