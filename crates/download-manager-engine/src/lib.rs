@@ -59,6 +59,7 @@ pub mod scheduled_wake;
 pub mod scheduler;
 pub mod segmented;
 pub mod server_rules;
+pub mod site_adapter;
 pub mod state;
 pub mod storage;
 pub mod structured_log;
