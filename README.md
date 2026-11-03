@@ -1,8 +1,8 @@
 # Download Manager
 
-A planned high-speed, local-first download manager for Windows with IDM-class core capabilities: adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
+A high-speed, local-first download manager release candidate for Windows with adaptive dynamic segmentation, safe resume, browser integration, in-player media detection, queues, scheduling, categories, site grabbing, proxy/authentication support and command-line automation.
 
-> **Project status: Milestone 5 is complete.** Chromium now has bounded protected handoff, normalized single/all/selected-link collection, native batch review controls, browser/profile metadata isolation, default-off incognito handling, and actionable version/registration self-check and repair. Firefox integration begins at S096.
+> **Project status: Milestone 11 release documentation is complete; the clean-VM release-candidate journey is the remaining planned slice.** The final evidence audit records any external or production-integration blockers without overstating them.
 
 ## Goals
 
@@ -18,6 +18,10 @@ The speed goal is a measured release gate, not a claim that any client can overr
 
 - [Product Requirements and SRS](./REQUIREMENTS.md)
 - [Progressive Implementation Plan](./PROGRESSIVE_IMPLEMENTATION_PLAN.md)
+- [User guide and troubleshooting](./docs/USER_GUIDE.md)
+- [Privacy statement](./docs/PRIVACY.md)
+- [Third-party notices](./docs/THIRD_PARTY_NOTICES.md)
+- [Requirement traceability](./docs/TRACEABILITY.md)
 
 The implementation plan divides the project into small quota-safe slices. Each slice is designed to fit comfortably inside one Codex 5-hour usage window even when intensive work consumes that allowance in roughly 1–2 hours. Each slice includes focused tests, documentation and a commit. Long-running release tests such as the 24-hour soak are automated separately.
 
