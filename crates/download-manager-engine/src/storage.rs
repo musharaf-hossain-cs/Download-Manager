@@ -197,14 +197,52 @@ impl Database {
         metadata: &JobMetadata,
         identity: Option<&RemoteIdentity>,
     ) -> Result<(), StorageError> {
+        self.create_job_with_segments(metadata, identity, &[])
+    }
+
+    /// Inserts one job, its optional identity, and initial segment map in one transaction.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] for validation, constraint, or transaction failures.
+    pub fn create_job_with_segments(
+        &mut self,
+        metadata: &JobMetadata,
+        identity: Option<&RemoteIdentity>,
+        segments: &[Segment],
+    ) -> Result<(), StorageError> {
         metadata.validate()?;
         if let Some(identity) = identity {
             identity.validate()?;
+        }
+        for segment in segments {
+            segment.validate()?;
+            if segment.job_id != metadata.id {
+                return Err(StorageError::Corrupt(
+                    "segment belongs to a different job".to_owned(),
+                ));
+            }
         }
         let transaction = self.connection.transaction()?;
         insert_job(&transaction, metadata)?;
         if let Some(identity) = identity {
             insert_remote_identity(&transaction, metadata.id, identity)?;
+        }
+        for segment in segments {
+            transaction.execute(
+                "INSERT INTO segments \
+                 (id, job_id, range_start, range_end, durable_offset, worker_state, checksum, checkpoint_at_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    segment.id.to_string(),
+                    segment.job_id.to_string(),
+                    u64_to_i64(segment.start)?,
+                    u64_to_i64(segment.end)?,
+                    u64_to_i64(segment.durable_offset)?,
+                    segment.worker_state,
+                    segment.checksum,
+                    segment.checkpoint_at.get(),
+                ],
+            )?;
         }
         transaction.commit()?;
         Ok(())
@@ -1697,6 +1735,36 @@ mod tests {
             .expect("trigger");
         let metadata = job(DownloadState::Created, 1);
         assert!(database.create_job(&metadata, Some(&identity())).is_err());
+        assert!(database.get_job(metadata.id).expect("read").is_none());
+    }
+
+    #[test]
+    fn job_identity_and_initial_segments_roll_back_as_one_transaction() {
+        let mut database = Database::open_in_memory().expect("database");
+        database
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_segment BEFORE INSERT ON segments \
+                 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+            )
+            .expect("trigger");
+        let metadata = job(DownloadState::Queued, 1);
+        let segment = Segment {
+            id: SegmentId::new(),
+            job_id: metadata.id,
+            start: 0,
+            end: 99,
+            durable_offset: 0,
+            worker_state: "queued".to_owned(),
+            checksum: None,
+            checkpoint_at: timestamp(1),
+        };
+
+        assert!(
+            database
+                .create_job_with_segments(&metadata, Some(&identity()), &[segment])
+                .is_err()
+        );
         assert!(database.get_job(metadata.id).expect("read").is_none());
     }
 

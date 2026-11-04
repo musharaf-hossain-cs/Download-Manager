@@ -1,13 +1,15 @@
 //! Correctness-first single-stream HTTP transfer primitives.
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{Read, Write},
     path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, RecvTimeoutError, sync_channel},
     },
+    thread,
     time::Duration,
 };
 
@@ -21,6 +23,7 @@ use crate::{
 };
 
 const BUFFER_SIZE: usize = 64 * 1024;
+const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferProgress {
@@ -141,43 +144,79 @@ impl SingleStreamDownloader {
         {
             fs::create_dir_all(parent)?;
         }
-        let mut response = self.client.get(url.as_str()).send()?;
-        if !response.status().is_success() || response.status() == StatusCode::PARTIAL_CONTENT {
-            return Err(TransferError::HttpStatus(response.status().as_u16()));
-        }
-        let total_bytes = response.content_length();
+        let receiver = start_response_reader(self.client.clone(), url.as_str().to_owned())?;
+        let total_bytes = match next_event(&receiver, control)? {
+            Some(NetworkEvent::Headers { total_bytes }) => total_bytes,
+            None => {
+                sync_empty_partial(temporary_path)?;
+                return Ok(TransferStatus::Paused {
+                    downloaded_bytes: 0,
+                    total_bytes: None,
+                });
+            }
+            Some(NetworkEvent::Failed(error)) => return Err(error),
+            Some(NetworkEvent::Chunk(_) | NetworkEvent::Finished) => {
+                return Err(unexpected_stream_event(
+                    "response headers were not received",
+                ));
+            }
+        };
         let mut file = OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
             .open(temporary_path)?;
-        let stream = stream_response(
-            &mut response,
-            &mut file,
-            total_bytes,
-            control,
-            &mut on_progress,
-        )?;
+        let mut downloaded_bytes = 0_u64;
+        let mut hasher = Sha256::new();
+        let paused = loop {
+            match next_event(&receiver, control)? {
+                None => break true,
+                Some(NetworkEvent::Chunk(bytes)) => {
+                    if let Err(error) =
+                        write_all_with_disk_guard(&mut file, &bytes, downloaded_bytes)
+                    {
+                        file.flush()?;
+                        file.sync_all()?;
+                        return Err(error.into());
+                    }
+                    hasher.update(&bytes);
+                    let chunk_length = u64::try_from(bytes.len())
+                        .map_err(|_| unexpected_stream_event("response chunk is too large"))?;
+                    downloaded_bytes = downloaded_bytes
+                        .checked_add(chunk_length)
+                        .ok_or_else(|| unexpected_stream_event("download byte counter overflow"))?;
+                    on_progress(TransferProgress {
+                        downloaded_bytes,
+                        total_bytes,
+                    });
+                }
+                Some(NetworkEvent::Finished) => break false,
+                Some(NetworkEvent::Headers { .. }) => {
+                    return Err(unexpected_stream_event("duplicate response headers"));
+                }
+                Some(NetworkEvent::Failed(error)) => return Err(error),
+            }
+        };
         file.flush()?;
         file.sync_all()?;
-        if stream.paused {
+        if paused {
             return Ok(TransferStatus::Paused {
-                downloaded_bytes: stream.downloaded_bytes,
+                downloaded_bytes,
                 total_bytes,
             });
         }
         if let Some(expected) = total_bytes
-            && stream.downloaded_bytes != expected
+            && downloaded_bytes != expected
         {
             return Err(TransferError::LengthMismatch {
                 expected,
-                actual: stream.downloaded_bytes,
+                actual: downloaded_bytes,
             });
         }
         Ok(TransferStatus::Completed(TransferOutcome {
-            downloaded_bytes: stream.downloaded_bytes,
+            downloaded_bytes,
             total_bytes,
-            sha256: stream.sha256,
+            sha256: format!("{:x}", hasher.finalize()),
         }))
     }
 }
@@ -188,56 +227,100 @@ impl Default for SingleStreamDownloader {
     }
 }
 
-struct StreamResult {
-    downloaded_bytes: u64,
-    sha256: String,
-    paused: bool,
+enum NetworkEvent {
+    Headers { total_bytes: Option<u64> },
+    Chunk(Vec<u8>),
+    Finished,
+    Failed(TransferError),
 }
 
-fn stream_response<F>(
-    response: &mut impl Read,
-    file: &mut File,
-    total_bytes: Option<u64>,
+fn start_response_reader(
+    client: Client,
+    url: String,
+) -> Result<Receiver<NetworkEvent>, TransferError> {
+    let (sender, receiver) = sync_channel(1);
+    thread::Builder::new()
+        .name("download-manager-http-reader".to_owned())
+        .spawn(move || {
+            let mut response = match client.get(url).send() {
+                Ok(response) => response,
+                Err(error) => {
+                    let _ = sender.send(NetworkEvent::Failed(error.into()));
+                    return;
+                }
+            };
+            if !response.status().is_success() || response.status() == StatusCode::PARTIAL_CONTENT {
+                let _ = sender.send(NetworkEvent::Failed(TransferError::HttpStatus(
+                    response.status().as_u16(),
+                )));
+                return;
+            }
+            if sender
+                .send(NetworkEvent::Headers {
+                    total_bytes: response.content_length(),
+                })
+                .is_err()
+            {
+                return;
+            }
+            let mut buffer = vec![0_u8; BUFFER_SIZE];
+            loop {
+                match response.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = sender.send(NetworkEvent::Finished);
+                        return;
+                    }
+                    Ok(count) => {
+                        if sender
+                            .send(NetworkEvent::Chunk(buffer[..count].to_vec()))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.send(NetworkEvent::Failed(error.into()));
+                        return;
+                    }
+                }
+            }
+        })?;
+    Ok(receiver)
+}
+
+fn next_event(
+    receiver: &Receiver<NetworkEvent>,
     control: &TransferControl,
-    on_progress: &mut F,
-) -> Result<StreamResult, TransferError>
-where
-    F: FnMut(TransferProgress),
-{
-    let mut downloaded_bytes = 0_u64;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; BUFFER_SIZE];
+) -> Result<Option<NetworkEvent>, TransferError> {
     loop {
         if control.is_pause_requested() {
-            return Ok(StreamResult {
-                downloaded_bytes,
-                sha256: format!("{:x}", hasher.finalize()),
-                paused: true,
-            });
+            return Ok(None);
         }
-        let count = response.read(&mut buffer)?;
-        if count == 0 {
-            break;
+        match receiver.recv_timeout(CONTROL_POLL_INTERVAL) {
+            Ok(NetworkEvent::Failed(_)) if control.is_pause_requested() => return Ok(None),
+            Ok(NetworkEvent::Failed(error)) => return Err(error),
+            Ok(event) => return Ok(Some(event)),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(unexpected_stream_event("HTTP reader disconnected"));
+            }
         }
-        if let Err(error) = write_all_with_disk_guard(file, &buffer[..count], downloaded_bytes) {
-            file.flush()?;
-            file.sync_all()?;
-            return Err(error.into());
-        }
-        hasher.update(&buffer[..count]);
-        downloaded_bytes = downloaded_bytes
-            .checked_add(u64::try_from(count).expect("buffer count fits u64"))
-            .expect("download byte counter overflow");
-        on_progress(TransferProgress {
-            downloaded_bytes,
-            total_bytes,
-        });
     }
-    Ok(StreamResult {
-        downloaded_bytes,
-        sha256: format!("{:x}", hasher.finalize()),
-        paused: false,
-    })
+}
+
+fn sync_empty_partial(path: &Path) -> Result<(), TransferError> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)?;
+    file.flush()?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn unexpected_stream_event(message: &str) -> TransferError {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message).into()
 }
 
 #[cfg(test)]

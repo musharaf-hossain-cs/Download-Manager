@@ -22,7 +22,8 @@ use crate::{AddRequest, BackendError, CliBackend, JobView, QueueStart};
 const IPC_PROTOCOL_VERSION: u16 = 1;
 const MAX_IPC_MESSAGE_BYTES: usize = 1_048_576;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
-const IO_TIMEOUT: Duration = Duration::from_secs(10);
+const PEER_IO_TIMEOUT: Duration = Duration::from_secs(10);
+const CLIENT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(45);
 const MANIFEST_FILE: &str = "cli-ipc-v1.json";
 const CREDENTIAL_NAMESPACE: &str = "DownloadManager/CLI-IPC";
 const CREDENTIAL_HOST: &str = "local-cli-ipc-v1";
@@ -224,8 +225,8 @@ impl AuthenticatedIpcBackend {
         payload: RequestPayload,
     ) -> Result<Result<ResponsePayload, WireError>, LocalIpcError> {
         let mut stream = TcpStream::connect_timeout(&self.manifest.address, CONNECT_TIMEOUT)?;
-        stream.set_read_timeout(Some(IO_TIMEOUT))?;
-        stream.set_write_timeout(Some(IO_TIMEOUT))?;
+        stream.set_read_timeout(Some(CLIENT_RESPONSE_TIMEOUT))?;
+        stream.set_write_timeout(Some(PEER_IO_TIMEOUT))?;
         let request = AuthenticatedRequest {
             version: IPC_PROTOCOL_VERSION,
             instance_id: self.manifest.instance_id.clone(),
@@ -387,8 +388,8 @@ impl LocalIpcServer {
         backend: &mut B,
     ) -> Result<ServerCommand, LocalIpcError> {
         let (mut stream, _) = self.listener.accept()?;
-        stream.set_read_timeout(Some(IO_TIMEOUT))?;
-        stream.set_write_timeout(Some(IO_TIMEOUT))?;
+        stream.set_read_timeout(Some(PEER_IO_TIMEOUT))?;
+        stream.set_write_timeout(Some(PEER_IO_TIMEOUT))?;
         let request: AuthenticatedRequest = read_message(&mut stream)?;
         let (result, command) = if request.version != IPC_PROTOCOL_VERSION
             || request.instance_id != self.instance_id
@@ -591,7 +592,7 @@ fn format_backend_error(error: &BackendError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, net::SocketAddr, thread};
+    use std::{fs, net::SocketAddr, thread, time::Duration};
 
     use download_manager_engine::{domain::JobId, state::DownloadState};
 
@@ -604,6 +605,7 @@ mod tests {
     struct FixtureBackend {
         jobs: Vec<JobView>,
         calls: usize,
+        list_delay: Duration,
     }
 
     impl CliBackend for FixtureBackend {
@@ -614,6 +616,7 @@ mod tests {
 
         fn list(&mut self) -> Result<Vec<JobView>, BackendError> {
             self.calls += 1;
+            thread::sleep(self.list_delay);
             Ok(self.jobs.clone())
         }
 
@@ -671,12 +674,39 @@ mod tests {
             let mut backend = FixtureBackend {
                 jobs: vec![server_expected],
                 calls: 0,
+                list_delay: Duration::ZERO,
             };
             server.serve_once(&mut backend).expect("serve request");
             backend.calls
         });
 
         assert_eq!(client.list().expect("list jobs"), vec![expected]);
+        assert_eq!(server_thread.join().expect("server thread"), 1);
+        fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
+    fn client_waits_past_the_old_ten_second_probe_boundary() {
+        let directory = directory();
+        let token = "9".repeat(64);
+        let server = LocalIpcServer::bind_with_token(&directory, token.clone()).expect("bind");
+        let mut client =
+            AuthenticatedIpcBackend::discover_with_token(&directory, token).expect("discover");
+        let expected = job();
+        let server_expected = expected.clone();
+        let server_thread = thread::spawn(move || {
+            let mut backend = FixtureBackend {
+                jobs: vec![server_expected],
+                calls: 0,
+                list_delay: Duration::from_secs(11),
+            };
+            server
+                .serve_once(&mut backend)
+                .expect("serve delayed request");
+            backend.calls
+        });
+
+        assert_eq!(client.list().expect("delayed list"), vec![expected]);
         assert_eq!(server_thread.join().expect("server thread"), 1);
         fs::remove_dir_all(directory).expect("cleanup");
     }
@@ -695,6 +725,7 @@ mod tests {
             let mut backend = FixtureBackend {
                 jobs: vec![job()],
                 calls: 0,
+                list_delay: Duration::ZERO,
             };
             assert_eq!(
                 server.serve_once(&mut backend).expect("serve health"),
@@ -727,6 +758,7 @@ mod tests {
             let mut backend = FixtureBackend {
                 jobs: vec![job()],
                 calls: 0,
+                list_delay: Duration::ZERO,
             };
             server.serve_once(&mut backend).expect("serve request");
             backend.calls

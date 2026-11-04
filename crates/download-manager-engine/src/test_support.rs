@@ -17,6 +17,7 @@ pub(crate) struct Fixture {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub delay: Duration,
+    pub body_delay: Duration,
     pub include_content_length: bool,
 }
 
@@ -27,6 +28,7 @@ impl Fixture {
             headers: Vec::new(),
             body: body.into(),
             delay: Duration::ZERO,
+            body_delay: Duration::ZERO,
             include_content_length: true,
         }
     }
@@ -43,6 +45,11 @@ impl Fixture {
 
     pub(crate) fn delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
+        self
+    }
+
+    pub(crate) fn body_delay(mut self, delay: Duration) -> Self {
+        self.body_delay = delay;
         self
     }
 
@@ -201,6 +208,7 @@ fn write_response(stream: &mut TcpStream, fixture: &Fixture, is_head: bool) {
         .write_all(response.as_bytes())
         .expect("write fixture headers");
     if !is_head {
+        thread::sleep(fixture.body_delay);
         stream.write_all(&fixture.body).expect("write fixture body");
     }
 }

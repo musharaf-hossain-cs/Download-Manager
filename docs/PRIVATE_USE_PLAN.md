@@ -129,13 +129,14 @@ Definition of done:
 
 ### Completion record
 
-Phase B maps PU03 to repository completion slice S196. The live backend keeps the PU03 registry in
-memory and serializes transfers through one FIFO worker; SQLite durability, restart recovery, and
-download controls remain owned by PU04.
+Phase B maps PU03–PU04 to repository completion slices S196–S197. The live backend serializes
+transfers through one FIFO worker while SQLite owns durable jobs, remote identities, state events,
+and safe single-stream checkpoints.
 
 | Segment | Slice | Status | Evidence |
 | ------- | ----- | ------ | -------- |
 | PU03 | S196 | Complete | `cargo test -p download-manager-cli` covers packaged-style authenticated CLI add/list/status plus known-length, unknown-length, redirect, and truncated-network fixture transfers; successful files match the exact fixture bytes and SHA-256, while failed work retains only a partial and exposes a bounded reason. |
+| PU04 | S197 | Complete | `cargo test -p download-manager-cli` covers production CLI pause/resume/cancel, SQLite reopen recovery, identity-validated ranged resume with exact bytes, changed-ETag refusal without partial mutation, cancellation without final publication, and a real backend shutdown/restart/resume journey. |
 
 ### PU03 — Connect add/list/status to one real HTTP(S) download
 

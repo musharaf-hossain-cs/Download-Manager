@@ -4,6 +4,9 @@ use std::{
     fs::OpenOptions,
     io::{Read, Write},
     path::Path,
+    sync::mpsc::{Receiver, RecvTimeoutError, sync_channel},
+    thread,
+    time::Duration,
 };
 
 use reqwest::{
@@ -18,10 +21,11 @@ use crate::{
     domain::{HttpUrl, RangeCapability, RemoteIdentity},
     http_range::parse_content_range,
     probe::{HttpProbe, ProbeError},
-    transfer::{TransferOutcome, TransferProgress},
+    transfer::{TransferControl, TransferOutcome, TransferProgress, TransferStatus},
 };
 
 const BUFFER_SIZE: usize = 64 * 1024;
+const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum IdentityMismatch {
@@ -98,12 +102,54 @@ pub fn resume_single_stream<F>(
     partial_path: &Path,
     durable_offset: u64,
     expected_identity: &RemoteIdentity,
-    mut on_progress: F,
+    on_progress: F,
 ) -> Result<TransferOutcome, ResumeError>
 where
     F: FnMut(TransferProgress),
 {
-    let probe = HttpProbe::new()?.probe(url)?;
+    match resume_single_stream_with_control(
+        url,
+        partial_path,
+        durable_offset,
+        expected_identity,
+        &TransferControl::default(),
+        on_progress,
+    )? {
+        TransferStatus::Completed(outcome) => Ok(outcome),
+        TransferStatus::Paused { .. } => unreachable!("private transfer control cannot pause"),
+    }
+}
+
+/// Probes identity and appends the requested missing byte range until complete or paused.
+///
+/// A paused result is returned only after all accepted bytes are flushed and synced. The partial
+/// file is not opened for writing until identity and range support are confirmed.
+///
+/// # Errors
+/// Returns a safe refusal when identity, range support, local length, response status, or range
+/// metadata cannot prove an append is correct.
+///
+pub fn resume_single_stream_with_control<F>(
+    url: &HttpUrl,
+    partial_path: &Path,
+    durable_offset: u64,
+    expected_identity: &RemoteIdentity,
+    control: &TransferControl,
+    mut on_progress: F,
+) -> Result<TransferStatus, ResumeError>
+where
+    F: FnMut(TransferProgress),
+{
+    let probe = match HttpProbe::new().and_then(|probe| probe.probe(url)) {
+        Ok(probe) => probe,
+        Err(_) if control.is_pause_requested() => {
+            return Ok(TransferStatus::Paused {
+                downloaded_bytes: durable_offset,
+                total_bytes: expected_identity.content_length,
+            });
+        }
+        Err(error) => return Err(error.into()),
+    };
     validate_remote_identity(expected_identity, &probe.identity)?;
     if probe.identity.range_capability != RangeCapability::Supported {
         return Err(ResumeError::RestartRequired);
@@ -115,51 +161,68 @@ where
             actual: local_length,
         });
     }
-    let client = Client::new();
-    let mut request = client
-        .get(probe.final_url.as_str())
-        .header(RANGE, format!("bytes={durable_offset}-"));
-    if let Some(validator) = expected_identity
+    if expected_identity.content_length == Some(durable_offset) {
+        if control.is_pause_requested() {
+            return Ok(TransferStatus::Paused {
+                downloaded_bytes: durable_offset,
+                total_bytes: expected_identity.content_length,
+            });
+        }
+        return Ok(TransferStatus::Completed(TransferOutcome {
+            downloaded_bytes: durable_offset,
+            total_bytes: expected_identity.content_length,
+            sha256: hash_file(partial_path)?,
+        }));
+    }
+    let validator = expected_identity
         .etag
         .as_ref()
         .or(expected_identity.last_modified.as_ref())
-    {
-        request = request.header(IF_RANGE, validator);
-    }
-    let mut response = request.send()?;
-    if response.status() != StatusCode::PARTIAL_CONTENT {
-        return Err(ResumeError::UnexpectedStatus(response.status().as_u16()));
-    }
-    let content_range = response
-        .headers()
-        .get(CONTENT_RANGE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    if !content_range.as_deref().is_some_and(|value| {
-        valid_content_range(value, durable_offset, expected_identity.content_length)
-    }) {
-        return Err(ResumeError::InvalidContentRange {
-            offset: durable_offset,
-            value: content_range,
+        .cloned();
+    let receiver = start_resume_reader(
+        probe.final_url.as_str().to_owned(),
+        durable_offset,
+        expected_identity.content_length,
+        validator,
+    )?;
+    if !wait_for_resume_ready(&receiver, control)? {
+        return Ok(TransferStatus::Paused {
+            downloaded_bytes: durable_offset,
+            total_bytes: expected_identity.content_length,
         });
     }
     let mut file = OpenOptions::new().append(true).open(partial_path)?;
     let mut downloaded_bytes = durable_offset;
-    let mut buffer = vec![0_u8; BUFFER_SIZE];
-    loop {
-        let count = response.read(&mut buffer)?;
-        if count == 0 {
-            break;
+    let paused = loop {
+        match next_resume_event(&receiver, control)? {
+            None => break true,
+            Some(ResumeEvent::Chunk(bytes)) => {
+                file.write_all(&bytes)?;
+                let chunk_length = u64::try_from(bytes.len())
+                    .map_err(|_| unexpected_resume_event("response chunk is too large"))?;
+                downloaded_bytes = downloaded_bytes
+                    .checked_add(chunk_length)
+                    .ok_or_else(|| unexpected_resume_event("download byte counter overflow"))?;
+                on_progress(TransferProgress {
+                    downloaded_bytes,
+                    total_bytes: expected_identity.content_length,
+                });
+            }
+            Some(ResumeEvent::Finished) => break false,
+            Some(ResumeEvent::Ready) => {
+                return Err(unexpected_resume_event("duplicate response headers"));
+            }
+            Some(ResumeEvent::Failed(error)) => return Err(error),
         }
-        file.write_all(&buffer[..count])?;
-        downloaded_bytes += u64::try_from(count).expect("buffer count fits u64");
-        on_progress(TransferProgress {
+    };
+    file.flush()?;
+    file.sync_all()?;
+    if paused {
+        return Ok(TransferStatus::Paused {
             downloaded_bytes,
             total_bytes: expected_identity.content_length,
         });
     }
-    file.flush()?;
-    file.sync_all()?;
     if let Some(expected) = expected_identity.content_length
         && downloaded_bytes != expected
     {
@@ -168,11 +231,136 @@ where
             actual: downloaded_bytes,
         });
     }
-    Ok(TransferOutcome {
+    Ok(TransferStatus::Completed(TransferOutcome {
         downloaded_bytes,
         total_bytes: expected_identity.content_length,
         sha256: hash_file(partial_path)?,
-    })
+    }))
+}
+
+enum ResumeEvent {
+    Ready,
+    Chunk(Vec<u8>),
+    Finished,
+    Failed(ResumeError),
+}
+
+fn start_resume_reader(
+    url: String,
+    offset: u64,
+    total: Option<u64>,
+    validator: Option<String>,
+) -> Result<Receiver<ResumeEvent>, ResumeError> {
+    let (sender, receiver) = sync_channel(1);
+    thread::Builder::new()
+        .name("download-manager-resume-reader".to_owned())
+        .spawn(move || {
+            let client = match Client::builder()
+                .connect_timeout(Duration::from_secs(30))
+                .build()
+            {
+                Ok(client) => client,
+                Err(error) => {
+                    let _ = sender.send(ResumeEvent::Failed(error.into()));
+                    return;
+                }
+            };
+            let mut request = client.get(url).header(RANGE, format!("bytes={offset}-"));
+            if let Some(validator) = validator {
+                request = request.header(IF_RANGE, validator);
+            }
+            let mut response = match request.send() {
+                Ok(response) => response,
+                Err(error) => {
+                    let _ = sender.send(ResumeEvent::Failed(error.into()));
+                    return;
+                }
+            };
+            if response.status() != StatusCode::PARTIAL_CONTENT {
+                let _ = sender.send(ResumeEvent::Failed(ResumeError::UnexpectedStatus(
+                    response.status().as_u16(),
+                )));
+                return;
+            }
+            let content_range = response
+                .headers()
+                .get(CONTENT_RANGE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned);
+            if !content_range
+                .as_deref()
+                .is_some_and(|value| valid_content_range(value, offset, total))
+            {
+                let _ = sender.send(ResumeEvent::Failed(ResumeError::InvalidContentRange {
+                    offset,
+                    value: content_range,
+                }));
+                return;
+            }
+            if sender.send(ResumeEvent::Ready).is_err() {
+                return;
+            }
+            let mut buffer = vec![0_u8; BUFFER_SIZE];
+            loop {
+                match response.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = sender.send(ResumeEvent::Finished);
+                        return;
+                    }
+                    Ok(count) => {
+                        if sender
+                            .send(ResumeEvent::Chunk(buffer[..count].to_vec()))
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.send(ResumeEvent::Failed(error.into()));
+                        return;
+                    }
+                }
+            }
+        })?;
+    Ok(receiver)
+}
+
+fn next_resume_event(
+    receiver: &Receiver<ResumeEvent>,
+    control: &TransferControl,
+) -> Result<Option<ResumeEvent>, ResumeError> {
+    loop {
+        if control.is_pause_requested() {
+            return Ok(None);
+        }
+        match receiver.recv_timeout(CONTROL_POLL_INTERVAL) {
+            Ok(ResumeEvent::Failed(_)) if control.is_pause_requested() => return Ok(None),
+            Ok(ResumeEvent::Failed(error)) => return Err(error),
+            Ok(event) => return Ok(Some(event)),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(unexpected_resume_event("HTTP resume reader disconnected"));
+            }
+        }
+    }
+}
+
+fn wait_for_resume_ready(
+    receiver: &Receiver<ResumeEvent>,
+    control: &TransferControl,
+) -> Result<bool, ResumeError> {
+    match next_resume_event(receiver, control)? {
+        Some(ResumeEvent::Ready) => Ok(true),
+        None => Ok(false),
+        Some(ResumeEvent::Failed(error)) => Err(error),
+        Some(ResumeEvent::Chunk(_) | ResumeEvent::Finished) => Err(unexpected_resume_event(
+            "response headers were not received",
+        )),
+    }
+}
+
+fn unexpected_resume_event(message: &str) -> ResumeError {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message).into()
 }
 
 fn valid_content_range(value: &str, offset: u64, total: Option<u64>) -> bool {
@@ -195,14 +383,17 @@ fn hash_file(path: &Path) -> Result<String, std::io::Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, thread, time::Duration, time::Instant};
 
     use tempfile::tempdir;
 
-    use super::{IdentityMismatch, ResumeError, resume_single_stream};
+    use super::{
+        IdentityMismatch, ResumeError, resume_single_stream, resume_single_stream_with_control,
+    };
     use crate::{
         domain::{HttpUrl, RangeCapability, RemoteIdentity},
         test_support::{Fixture, FixtureServer},
+        transfer::{TransferControl, TransferStatus},
     };
 
     fn identity(etag: &str, length: u64) -> RemoteIdentity {
@@ -243,6 +434,130 @@ mod tests {
         let requests = server.requests();
         assert_eq!(requests[1].header("range"), Some("bytes=5-"));
         assert_eq!(requests[1].header("if-range"), Some("\"v1\""));
+    }
+
+    #[test]
+    fn resumed_transfer_pauses_only_after_syncing_accepted_bytes() {
+        let tail = vec![0x5a; 100_000];
+        let total = 5 + u64::try_from(tail.len()).expect("tail length");
+        let server = FixtureServer::start(vec![
+            Fixture::ok(Vec::new())
+                .header("ETag", "\"v1\"")
+                .header("Content-Length", &total.to_string())
+                .header("Accept-Ranges", "bytes"),
+            Fixture::ok(tail.clone())
+                .status(206)
+                .header("Content-Range", &format!("bytes 5-{}/{total}", total - 1)),
+        ]);
+        let directory = tempdir().expect("directory");
+        let partial = directory.path().join("file.part");
+        fs::write(&partial, b"hello").expect("partial");
+        let control = TransferControl::default();
+        let progress_control = control.clone();
+        let status = resume_single_stream_with_control(
+            &HttpUrl::parse(server.url("/file")).expect("URL"),
+            &partial,
+            5,
+            &identity("\"v1\"", total),
+            &control,
+            move |_| progress_control.request_pause(),
+        )
+        .expect("pause resumed transfer");
+        let TransferStatus::Paused {
+            downloaded_bytes,
+            total_bytes,
+        } = status
+        else {
+            panic!("resume should pause");
+        };
+        assert_eq!(total_bytes, Some(total));
+        assert!(downloaded_bytes > 5);
+        assert!(downloaded_bytes < total);
+        let bytes = fs::read(&partial).expect("synced partial");
+        assert_eq!(bytes.len() as u64, downloaded_bytes);
+        assert_eq!(&bytes[..5], b"hello");
+        assert_eq!(&bytes[5..], &tail[..bytes.len() - 5]);
+    }
+
+    #[test]
+    fn resumed_transfer_pauses_while_the_peer_stalls_before_the_body() {
+        let total = 11;
+        let server = FixtureServer::start(vec![
+            Fixture::ok(Vec::new())
+                .header("ETag", "\"v1\"")
+                .header("Content-Length", &total.to_string())
+                .header("Accept-Ranges", "bytes"),
+            Fixture::ok(b" world".to_vec())
+                .status(206)
+                .header("Content-Range", "bytes 5-10/11")
+                .body_delay(Duration::from_secs(1)),
+        ]);
+        let directory = tempdir().expect("directory");
+        let partial = directory.path().join("file.part");
+        fs::write(&partial, b"hello").expect("partial");
+        let control = TransferControl::default();
+        let pause_control = control.clone();
+        let pause_worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            pause_control.request_pause();
+        });
+
+        let started = Instant::now();
+        let status = resume_single_stream_with_control(
+            &HttpUrl::parse(server.url("/file")).expect("URL"),
+            &partial,
+            5,
+            &identity("\"v1\"", total),
+            &control,
+            |_| {},
+        )
+        .expect("pause stalled resume");
+        pause_worker.join().expect("pause worker");
+
+        assert!(matches!(
+            status,
+            TransferStatus::Paused {
+                downloaded_bytes: 5,
+                total_bytes: Some(11)
+            }
+        ));
+        assert!(
+            started.elapsed() < Duration::from_millis(900),
+            "pause should not wait for the stalled response body"
+        );
+        assert_eq!(fs::read(&partial).expect("unchanged partial"), b"hello");
+        assert_eq!(server.requests().len(), 2, "the ranged GET was issued");
+    }
+
+    #[test]
+    fn fully_durable_partial_completes_after_identity_probe_without_empty_range() {
+        let server = FixtureServer::start(vec![
+            Fixture::ok(Vec::new())
+                .header("ETag", "\"v1\"")
+                .header("Content-Length", "5")
+                .header("Accept-Ranges", "bytes"),
+        ]);
+        let directory = tempdir().expect("directory");
+        let partial = directory.path().join("file.part");
+        fs::write(&partial, b"hello").expect("partial");
+
+        let outcome = resume_single_stream(
+            &HttpUrl::parse(server.url("/file")).expect("URL"),
+            &partial,
+            5,
+            &identity("\"v1\"", 5),
+            |_| {},
+        )
+        .expect("complete durable partial");
+
+        assert_eq!(outcome.downloaded_bytes, 5);
+        assert_eq!(outcome.total_bytes, Some(5));
+        assert_eq!(fs::read(partial).expect("unchanged partial"), b"hello");
+        assert_eq!(
+            server.requests().len(),
+            1,
+            "only the identity probe is needed"
+        );
     }
 
     #[test]
