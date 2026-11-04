@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json --noEmit",
+    "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
   }
 }

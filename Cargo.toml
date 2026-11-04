@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/desktop/src-tauri",
     "crates/download-manager-cli",
     "crates/download-manager-engine",
     "crates/download-manager-native-host",

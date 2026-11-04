@@ -13,6 +13,7 @@ coverage/
 
 # Tauri / packaging
 src-tauri/target/
+**/src-tauri/gen/
 *.msi
 *.msix
 *.appx

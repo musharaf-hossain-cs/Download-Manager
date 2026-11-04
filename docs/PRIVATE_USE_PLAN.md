@@ -179,6 +179,16 @@ Definition of done:
 
 ## Phase C — Minimal desktop application
 
+### Completion record
+
+Phase C currently maps PU05 to repository completion slice S198. The one-window Tauri shell owns a
+current-user authenticated backend connection, starts the backend when it is absent, and leaves
+healthy backend-owned work running when the window closes.
+
+| Segment | Slice | Status | Evidence |
+| ------- | ----- | ------ | -------- |
+| PU05 | S198 | Complete | `cargo test -p download-manager-desktop` covers start, already-running discovery, failed start, unhealthy-start cleanup, and clean connection close without terminating a healthy backend. `pnpm --filter @download-manager/desktop tauri dev --no-watch` opens one real Windows WebView showing the connected backend version; closing it leaves the same backend process healthy, and reopening connects without spawning a replacement. |
+
 ### PU05 — Create the Tauri desktop shell and backend lifecycle
 
 **Size:** Large

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Download Manager</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="main.js"></script>
+  </head>
+  <body>
+    <main class="shell" aria-labelledby="app-title">
+      <header>
+        <p class="eyebrow">Private desktop application</p>
+        <h1 id="app-title">Download Manager</h1>
+        <p class="summary">
+          The local download backend starts with this window and keeps durable
+          work safe when the window closes.
+        </p>
+      </header>
+
+      <section class="status-card" data-state="connecting" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div>
+          <h2 id="status-title">Connecting to the local backend…</h2>
+          <p id="status-message">Checking the current-user service.</p>
+          <p id="backend-version" class="version" hidden></p>
+        </div>
+      </section>
+
+      <p class="privacy-note">
+        Local only · Current Windows user · No telemetry or remote account
+      </p>
+    </main>
+  </body>
+</html>

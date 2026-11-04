@@ -1,0 +1,24 @@
+[package]
+name = "download-manager-desktop"
+description = "Private-use Windows desktop shell for Download Manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "download_manager_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+download-manager-cli = { version = "0.1.0", path = "../../../crates/download-manager-cli" }
+serde = { version = "1.0.228", features = ["derive"] }
+tauri = { version = "2.12.5", features = [] }
+
+[lints]
+workspace = true
