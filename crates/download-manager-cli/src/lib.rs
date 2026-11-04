@@ -9,8 +9,10 @@ use download_manager_engine::{
 };
 use serde::{Deserialize, Serialize};
 
+mod download_backend;
 mod local_ipc;
 
+pub use download_backend::DownloadBackend;
 pub use local_ipc::{
     AuthenticatedIpcBackend, BackendHealth, LocalIpcError, LocalIpcServer, ServerCommand,
 };
@@ -70,6 +72,8 @@ pub struct JobView {
     pub filename: String,
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -572,13 +576,11 @@ fn wait_for_job<B: CliBackend + ?Sized, W: WaitControl, E: Write>(
                 return Err(CliExit::Cancelled);
             }
             DownloadState::Failed | DownloadState::MissingLocalFile => {
-                emit_error(
-                    json,
-                    "add",
-                    "job_failed",
-                    "download did not complete",
-                    stderr,
-                );
+                let message = job
+                    .failure_reason
+                    .as_deref()
+                    .unwrap_or("download did not complete");
+                emit_error(json, "add", "job_failed", message, stderr);
                 return Err(CliExit::Rejected);
             }
             _ => {}
@@ -772,6 +774,7 @@ mod tests {
             filename: "release file.zip".to_owned(),
             downloaded_bytes: 12,
             total_bytes: Some(100),
+            failure_reason: None,
         }
     }
 
@@ -1079,5 +1082,34 @@ mod tests {
         assert_eq!(exit.code(), 130);
         assert_eq!(stdout, "");
         assert!(stderr.contains("\"code\":\"wait_cancelled\""));
+    }
+
+    #[test]
+    fn wait_failure_reports_the_backend_reason() {
+        let mut failed = job();
+        failed.failure_reason = Some("HTTP transfer returned status 503".to_owned());
+        let mut backend = FixtureBackend {
+            jobs: vec![failed],
+            wait_states: [DownloadState::Failed].into_iter().collect(),
+            ..FixtureBackend::default()
+        };
+        let (exit, stdout, stderr) = invoke_wait(
+            &[
+                "add",
+                "https://example.test/file.zip",
+                "--output",
+                "downloads",
+                "--wait",
+                "--timeout",
+                "1",
+                "--json",
+            ],
+            &mut backend,
+            [WaitSignal::Elapsed(Duration::from_millis(200))],
+        );
+
+        assert_eq!(exit, CliExit::Rejected);
+        assert_eq!(stdout, "");
+        assert!(stderr.contains("HTTP transfer returned status 503"));
     }
 }

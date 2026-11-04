@@ -127,6 +127,16 @@ Definition of done:
 
 ## Phase B — Real download path
 
+### Completion record
+
+Phase B maps PU03 to repository completion slice S196. The live backend keeps the PU03 registry in
+memory and serializes transfers through one FIFO worker; SQLite durability, restart recovery, and
+download controls remain owned by PU04.
+
+| Segment | Slice | Status | Evidence |
+| ------- | ----- | ------ | -------- |
+| PU03 | S196 | Complete | `cargo test -p download-manager-cli` covers packaged-style authenticated CLI add/list/status plus known-length, unknown-length, redirect, and truncated-network fixture transfers; successful files match the exact fixture bytes and SHA-256, while failed work retains only a partial and exposes a bounded reason. |
+
 ### PU03 — Connect add/list/status to one real HTTP(S) download
 
 **Size:** Large

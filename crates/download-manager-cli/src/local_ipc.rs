@@ -654,6 +654,7 @@ mod tests {
             filename: "archive.zip".to_owned(),
             downloaded_bytes: 512,
             total_bytes: Some(1_024),
+            failure_reason: None,
         }
     }
 

@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use download_manager_cli::{LocalIpcServer, ServerCommand, UnavailableBackend};
+use download_manager_cli::{DownloadBackend, LocalIpcServer, ServerCommand};
 
 fn main() -> ExitCode {
     match run() {
@@ -13,9 +13,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // PU02 intentionally exposes lifecycle only. PU03 replaces this bounded authority with the
-    // real durable download backend without changing the authenticated process boundary.
-    let mut backend = UnavailableBackend;
+    let mut backend = DownloadBackend::for_current_user()?;
     let mut server = LocalIpcServer::prepare_current_user()?;
     server.publish_ready()?;
 
