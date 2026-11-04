@@ -4,4 +4,5 @@ target
 dist
 node_modules
 **/src-tauri/gen
+apps/desktop/ui/generated
 

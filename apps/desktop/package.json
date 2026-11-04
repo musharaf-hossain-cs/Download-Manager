@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.json --noEmit",
+    "build": "pnpm typecheck && pnpm build:ui",
+    "build:ui": "tsc --project tsconfig.ui.json",
+    "prepare:tauri": "pnpm build:ui && cargo build --manifest-path ../../Cargo.toml -p download-manager-cli --bin download-manager-backend",
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"

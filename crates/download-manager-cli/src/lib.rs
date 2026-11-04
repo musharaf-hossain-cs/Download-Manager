@@ -4,7 +4,7 @@ use std::{ffi::OsString, fmt::Write as _, io::Write, path::PathBuf, str::FromStr
 
 use download_manager_engine::{
     domain::{HttpUrl, JobId},
-    ipc::JobAction,
+    ipc::{Envelope, JobAction, UiMessage, UiRequest},
     state::DownloadState,
 };
 use serde::{Deserialize, Serialize};
@@ -140,6 +140,22 @@ pub trait CliBackend {
     /// # Errors
     /// Returns not-found, engine rejection, or transport failure.
     fn start_queue(&mut self, name: &str) -> Result<QueueStart, BackendError>;
+
+    /// Dispatches one versioned desktop UI request through the authenticated backend authority.
+    ///
+    /// Implementations that do not expose the desktop surface reject the request by default.
+    ///
+    /// # Errors
+    /// Returns an engine rejection or transport failure.
+    fn desktop_request(
+        &mut self,
+        _request: Envelope<UiRequest>,
+    ) -> Result<Envelope<UiMessage>, BackendError> {
+        Err(BackendError::Rejected {
+            code: "desktop_protocol_unavailable".to_owned(),
+            message: "the desktop UI protocol is unavailable on this backend".to_owned(),
+        })
+    }
 }
 
 /// Safe binary fallback until the authenticated local IPC transport is wired to this contract.

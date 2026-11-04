@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": false,
+    "noEmit": false,
+    "outDir": "ui/generated",
+    "rootDir": "src",
+    "sourceMap": false,
+    "types": []
+  },
+  "files": ["src/private-use-app.ts"]
+}

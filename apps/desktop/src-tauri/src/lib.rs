@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use download_manager_cli::AuthenticatedIpcBackend;
+use download_manager_cli::{AuthenticatedIpcBackend, BackendError};
+use download_manager_engine::ipc::decode_ui_request;
 use serde::Serialize;
 use tauri::Manager;
 
@@ -92,6 +93,10 @@ impl<C, P> LifecycleSession<C, P> {
     fn close(mut self) {
         drop(self.connection.take());
         drop(self.child.take());
+    }
+
+    fn connection_mut(&mut self) -> Option<&mut C> {
+        self.connection.as_mut()
     }
 }
 
@@ -286,14 +291,45 @@ fn backend_status(state: tauri::State<'_, DesktopState>) -> BackendStatus {
     state.status.clone()
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri commands extract managed state by value.
+fn backend_request(
+    state: tauri::State<'_, DesktopState>,
+    request: String,
+) -> Result<String, String> {
+    let mut session = state
+        .session
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let backend = session
+        .as_mut()
+        .and_then(LifecycleSession::connection_mut)
+        .ok_or_else(|| "The local backend is not connected.".to_owned())?;
+    let request = decode_ui_request(request.as_bytes())
+        .map_err(|error| format!("The desktop request is invalid: {error}"))?;
+    let response = backend
+        .desktop_request(request)
+        .map_err(format_backend_error)?;
+    serde_json::to_string(&response)
+        .map_err(|error| format!("The backend response could not be encoded: {error}"))
+}
+
+fn format_backend_error(error: BackendError) -> String {
+    match error {
+        BackendError::NotFound(message) | BackendError::Transport(message) => message,
+        BackendError::Rejected { code, message } => format!("{code}: {message}"),
+    }
+}
+
 /// Runs the one-window private-use desktop shell.
 ///
 /// # Panics
 /// Panics if Tauri cannot construct the desktop runtime from the checked-in configuration.
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(DesktopState::initialize())
-        .invoke_handler(tauri::generate_handler![backend_status])
+        .invoke_handler(tauri::generate_handler![backend_status, backend_request])
         .build(tauri::generate_context!())
         .expect("failed to build the Download Manager desktop shell");
 

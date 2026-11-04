@@ -15,12 +15,14 @@ use std::{
 
 use download_manager_engine::{
     domain::{
-        DownloadKind, JobId, JobMetadata, Priority, RangeCapability, RemoteIdentity, Segment,
-        SegmentId, UnixMillis,
+        DownloadKind, HttpUrl, JobId, JobMetadata, Priority, RangeCapability, RemoteIdentity,
+        Segment, SegmentId, UnixMillis,
     },
     filename::{safe_destination, sanitize_windows_filename, select_filename},
     finalize::{ConflictPolicy, finalize_cross_volume},
-    ipc::JobAction,
+    ipc::{
+        DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse,
+    },
     probe::HttpProbe,
     recovery::{ReconciliationAction, reconcile_partial},
     resume::resume_single_stream_with_control,
@@ -375,6 +377,107 @@ impl CliBackend for DownloadBackend {
             "unsupported_in_pu04",
             "download queues are outside the private-use milestone",
         ))
+    }
+
+    fn desktop_request(
+        &mut self,
+        request: Envelope<UiRequest>,
+    ) -> Result<Envelope<UiMessage>, BackendError> {
+        if request.version != UI_PROTOCOL_VERSION {
+            return Err(rejected(
+                "unsupported_protocol_version",
+                format!(
+                    "desktop protocol version {} is unsupported; expected {UI_PROTOCOL_VERSION}",
+                    request.version
+                ),
+            ));
+        }
+        let response = match request.payload {
+            UiRequest::Health => UiResponse::Health {
+                engine_version: download_manager_engine::VERSION.to_owned(),
+            },
+            UiRequest::ListJobs => UiResponse::Jobs {
+                jobs: self.desktop_jobs()?,
+            },
+            UiRequest::ProbeUrl {
+                source_url,
+                destination,
+            } => probe_for_desktop(&source_url, &destination),
+            UiRequest::AddJob {
+                source_url,
+                filename,
+                destination,
+                start_now,
+                duplicate_action,
+                ..
+            } => {
+                if duplicate_action == DuplicateAction::AddDuplicate {
+                    if let Err(error) = verify_writable_directory(&destination) {
+                        ui_rejected(
+                            "destination_unavailable",
+                            format!(
+                                "destination {} is not writable: {error}",
+                                destination.display()
+                            ),
+                        )
+                    } else {
+                        match self.add(AddRequest {
+                            source_url,
+                            output_directory: destination,
+                            filename: Some(filename),
+                            start_now,
+                            queue: None,
+                        }) {
+                            Ok(job) => UiResponse::Accepted { job_id: job.id },
+                            Err(error) => backend_error_response(error),
+                        }
+                    }
+                } else {
+                    ui_rejected(
+                        "unsupported_duplicate_action",
+                        "the private-use desktop currently adds a separate download",
+                    )
+                }
+            }
+            UiRequest::ControlJob { job_id, action } => match self.control(job_id, action) {
+                Ok(_) => {
+                    let metadata = load_job(&self.database, job_id)?.metadata;
+                    UiResponse::JobState {
+                        job_id,
+                        state: metadata.state,
+                        updated_at: metadata.updated_at,
+                    }
+                }
+                Err(error) => backend_error_response(error),
+            },
+            UiRequest::DestructiveJob { .. } => ui_rejected(
+                "unsupported_in_pu06",
+                "removing downloads is outside the PU06 desktop workflow",
+            ),
+        };
+        Ok(Envelope::new(
+            UI_PROTOCOL_VERSION,
+            request.request_id,
+            UiMessage::Response { response },
+        ))
+    }
+}
+
+impl DownloadBackend {
+    fn desktop_jobs(&self) -> Result<Vec<JobMetadata>, BackendError> {
+        let mut jobs = with_database(&self.database, |database| database.list_jobs())
+            .map_err(BackendError::Transport)?
+            .into_iter()
+            .map(|record| record.metadata)
+            .collect::<Vec<_>>();
+        let progress = lock(&self.progress);
+        for job in &mut jobs {
+            if let Some(live) = progress.get(&job.id) {
+                job.downloaded_bytes = live.downloaded_bytes;
+                job.total_bytes = live.total_bytes.or(job.total_bytes);
+            }
+        }
+        Ok(jobs)
     }
 }
 
@@ -803,6 +906,72 @@ fn validate_output_directory(directory: &Path) -> Result<(), BackendError> {
     }
 }
 
+fn probe_for_desktop(source_url: &HttpUrl, destination: &Path) -> UiResponse {
+    if let Err(error) = verify_writable_directory(destination) {
+        return ui_rejected(
+            "destination_unavailable",
+            format!(
+                "destination {} is not writable: {error}",
+                destination.display()
+            ),
+        );
+    }
+    match HttpProbe::new().and_then(|client| client.probe(source_url)) {
+        Ok(probe)
+            if (200..300).contains(&probe.status) && probe.authentication_challenge.is_none() =>
+        {
+            let filename = select_filename(
+                probe.content_disposition.as_deref(),
+                &probe.final_url,
+                probe.identity.mime_type.as_deref(),
+            );
+            UiResponse::UrlProbe {
+                destination: safe_destination(destination, &filename),
+                final_url: probe.final_url,
+                filename,
+                total_bytes: probe.identity.content_length,
+                mime_type: probe.identity.mime_type,
+            }
+        }
+        Ok(probe) => ui_rejected(
+            "probe_failed",
+            format!("HTTP probe returned status {}", probe.status),
+        ),
+        Err(error) => ui_rejected("probe_failed", error.to_string()),
+    }
+}
+
+fn verify_writable_directory(destination: &Path) -> io::Result<()> {
+    if !destination.metadata()?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "path is not a directory",
+        ));
+    }
+    let marker = destination.join(format!(".download-manager-write-test-{}", JobId::new()));
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)?;
+    drop(file);
+    fs::remove_file(marker)
+}
+
+fn ui_rejected(code: &str, message: impl Into<String>) -> UiResponse {
+    UiResponse::Rejected {
+        code: code.to_owned(),
+        message: message.into(),
+    }
+}
+
+fn backend_error_response(error: BackendError) -> UiResponse {
+    match error {
+        BackendError::NotFound(message) => ui_rejected("job_not_found", message),
+        BackendError::Rejected { code, message } => ui_rejected(&code, message),
+        BackendError::Transport(message) => ui_rejected("backend_transport", message),
+    }
+}
+
 fn send_work(sender: Option<&Sender<DownloadWork>>, work: DownloadWork) -> Result<(), String> {
     sender
         .ok_or_else(|| "download worker is unavailable".to_owned())?
@@ -848,5 +1017,277 @@ fn rejected(code: &str, message: impl Into<String>) -> BackendError {
     BackendError::Rejected {
         code: code.to_owned(),
         message: message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{Read, Write},
+        net::{SocketAddr, TcpListener, TcpStream},
+        path::PathBuf,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use download_manager_engine::{
+        domain::{HttpUrl, RequestId},
+        ipc::{DuplicateAction, Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
+        state::DownloadState,
+    };
+
+    use crate::CliBackend;
+
+    use super::DownloadBackend;
+
+    struct HttpFixture {
+        address: SocketAddr,
+        requests: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        worker: Option<thread::JoinHandle<()>>,
+    }
+
+    impl HttpFixture {
+        fn start(body: Vec<u8>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture");
+            listener.set_nonblocking(true).expect("nonblocking fixture");
+            let address = listener.local_addr().expect("fixture address");
+            let requests = Arc::new(AtomicUsize::new(0));
+            let request_count = Arc::clone(&requests);
+            let stop = Arc::new(AtomicBool::new(false));
+            let should_stop = Arc::clone(&stop);
+            let worker = thread::spawn(move || {
+                while !should_stop.load(Ordering::Acquire) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream
+                                .set_nonblocking(false)
+                                .expect("make fixture connection blocking");
+                            if let Some(request) = read_request(&mut stream) {
+                                request_count.fetch_add(1, Ordering::Relaxed);
+                                write_fixture_response(&mut stream, &request, &body);
+                            }
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(1));
+                        }
+                        Err(error) => panic!("fixture accept failed: {error}"),
+                    }
+                }
+            });
+            Self {
+                address,
+                requests,
+                stop,
+                worker: Some(worker),
+            }
+        }
+
+        fn url(&self) -> String {
+            format!("http://{}/fixture", self.address)
+        }
+    }
+
+    impl Drop for HttpFixture {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Release);
+            let _ = TcpStream::connect(self.address);
+            if let Some(worker) = self.worker.take() {
+                worker.join().expect("fixture worker");
+            }
+        }
+    }
+
+    fn read_request(stream: &mut TcpStream) -> Option<String> {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("fixture timeout");
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 512];
+        while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+            let count = stream.read(&mut buffer).ok()?;
+            if count == 0 {
+                return None;
+            }
+            bytes.extend_from_slice(&buffer[..count]);
+            if bytes.len() > 64 * 1024 {
+                return None;
+            }
+        }
+        String::from_utf8(bytes).ok()
+    }
+
+    fn write_fixture_response(stream: &mut TcpStream, request: &str, body: &[u8]) {
+        let is_head = request.starts_with("HEAD ");
+        let range_start = request.lines().find_map(|line| {
+            line.strip_prefix("Range: bytes=")
+                .or_else(|| line.strip_prefix("range: bytes="))
+                .and_then(|value| value.split('-').next())
+                .and_then(|value| value.parse::<usize>().ok())
+        });
+        let (status, selected, content_range) = range_start.map_or_else(
+            || ("200 OK", body, None),
+            |start| {
+                let selected = body.get(start..).unwrap_or_default();
+                (
+                    "206 Partial Content",
+                    selected,
+                    Some(format!(
+                        "Content-Range: bytes {start}-{}/{}\r\n",
+                        body.len().saturating_sub(1),
+                        body.len()
+                    )),
+                )
+            },
+        );
+        let headers = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=fixture.bin\r\nAccept-Ranges: bytes\r\nETag: \"fixture-v1\"\r\n{}Connection: close\r\n\r\n",
+            selected.len(),
+            content_range.unwrap_or_default()
+        );
+        if stream.write_all(headers.as_bytes()).is_ok() && !is_head {
+            for chunk in selected.chunks(8 * 1024) {
+                if stream.write_all(chunk).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+
+    fn temp_directory() -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("download-manager-pu06-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&path).expect("test directory");
+        path
+    }
+
+    fn desktop(backend: &mut DownloadBackend, payload: UiRequest) -> UiResponse {
+        let response = backend
+            .desktop_request(Envelope::new(
+                UI_PROTOCOL_VERSION,
+                RequestId::new(),
+                payload,
+            ))
+            .expect("desktop request");
+        match response.payload {
+            UiMessage::Response { response } => response,
+            UiMessage::Event { .. } => panic!("expected desktop response"),
+        }
+    }
+
+    #[test]
+    fn desktop_probe_add_and_list_use_the_real_download_worker() {
+        let body = vec![0x5a; 128 * 1024];
+        let server = HttpFixture::start(body.clone());
+        let root = temp_directory();
+        let destination = root.join("downloads");
+        std::fs::create_dir(&destination).expect("download destination");
+        let mut backend = DownloadBackend::new(root.join("partials")).expect("backend");
+        let source_url = HttpUrl::parse(server.url()).expect("fixture URL");
+
+        let missing = desktop(
+            &mut backend,
+            UiRequest::ProbeUrl {
+                source_url: source_url.clone(),
+                destination: root.join("missing"),
+            },
+        );
+        assert!(matches!(
+            missing,
+            UiResponse::Rejected { code, .. } if code == "destination_unavailable"
+        ));
+        assert_eq!(server.requests.load(Ordering::Relaxed), 0);
+
+        let invalid_add = desktop(
+            &mut backend,
+            UiRequest::AddJob {
+                source_url: source_url.clone(),
+                final_url: source_url.clone(),
+                filename: "fixture.bin".to_owned(),
+                destination: root.join("missing"),
+                total_bytes: Some(body.len() as u64),
+                start_now: true,
+                duplicate_action: DuplicateAction::AddDuplicate,
+            },
+        );
+        assert!(matches!(
+            invalid_add,
+            UiResponse::Rejected { code, .. } if code == "destination_unavailable"
+        ));
+        assert_eq!(server.requests.load(Ordering::Relaxed), 0);
+
+        let preview = desktop(
+            &mut backend,
+            UiRequest::ProbeUrl {
+                source_url: source_url.clone(),
+                destination: destination.clone(),
+            },
+        );
+        let (final_url, filename, total_bytes) = match preview {
+            UiResponse::UrlProbe {
+                final_url,
+                filename,
+                destination: preview_destination,
+                total_bytes,
+                ..
+            } => {
+                assert_eq!(preview_destination, destination.join("fixture.bin"));
+                (final_url, filename, total_bytes)
+            }
+            other => panic!("expected URL preview, got {other:?}"),
+        };
+        assert_eq!(filename, "fixture.bin");
+        assert_eq!(total_bytes, Some(body.len() as u64));
+
+        let accepted = desktop(
+            &mut backend,
+            UiRequest::AddJob {
+                source_url,
+                final_url,
+                filename: filename.clone(),
+                destination: destination.clone(),
+                total_bytes,
+                start_now: true,
+                duplicate_action: DuplicateAction::AddDuplicate,
+            },
+        );
+        let job_id = match accepted {
+            UiResponse::Accepted { job_id } => job_id,
+            other => panic!("expected accepted job, got {other:?}"),
+        };
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let completed = loop {
+            let response = desktop(&mut backend, UiRequest::ListJobs);
+            let UiResponse::Jobs { jobs } = response else {
+                panic!("expected job list");
+            };
+            let job = jobs
+                .into_iter()
+                .find(|job| job.id == job_id)
+                .expect("created job");
+            if job.state == DownloadState::Completed {
+                break job;
+            }
+            assert!(Instant::now() < deadline, "download did not complete");
+            thread::sleep(Duration::from_millis(20));
+        };
+
+        assert_eq!(completed.filename, filename);
+        assert_eq!(completed.destination, destination);
+        assert_eq!(completed.downloaded_bytes, body.len() as u64);
+        assert_eq!(
+            std::fs::read(destination.join("fixture.bin")).expect("completed file"),
+            body
+        );
+        assert!(server.requests.load(Ordering::Relaxed) >= 3);
+
+        drop(backend);
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 }

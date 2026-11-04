@@ -5,9 +5,10 @@
   "identifier": "io.github.musharaf-hossain-cs.download-manager",
   "build": {
     "beforeDevCommand": {
-      "script": "cargo build --manifest-path ../../Cargo.toml -p download-manager-cli --bin download-manager-backend",
+      "script": "pnpm prepare:tauri",
       "wait": true
     },
+    "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../ui"
   },
   "app": {
@@ -16,8 +17,8 @@
       {
         "label": "main",
         "title": "Download Manager",
-        "width": 720,
-        "height": 480,
+        "width": 920,
+        "height": 680,
         "minWidth": 520,
         "minHeight": 360,
         "resizable": true,

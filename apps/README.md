@@ -14,3 +14,6 @@ The development hook builds the current-user backend beside the desktop executab
 connects to an already-running healthy backend when available and otherwise starts it. Closing the
 window releases the desktop connection without shutting down backend-owned downloads.
 
+The window accepts an HTTP or HTTPS URL, uses the native Windows folder picker, previews the
+resolved filename and output path, and starts the production backend download. The job list polls
+at a bounded rate and shows state, progress, transferred/total bytes, speed, and ETA.

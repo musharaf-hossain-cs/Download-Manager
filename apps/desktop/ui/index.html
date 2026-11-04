@@ -5,17 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Download Manager</title>
     <link rel="stylesheet" href="styles.css" />
-    <script type="module" src="main.js"></script>
+    <script type="module" src="generated/private-use-app.js"></script>
   </head>
   <body>
     <main class="shell" aria-labelledby="app-title">
-      <header>
-        <p class="eyebrow">Private desktop application</p>
-        <h1 id="app-title">Download Manager</h1>
-        <p class="summary">
-          The local download backend starts with this window and keeps durable
-          work safe when the window closes.
-        </p>
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Private desktop application</p>
+          <h1 id="app-title">Download Manager</h1>
+          <p class="summary">
+            HTTP and HTTPS downloads on this Windows account.
+          </p>
+        </div>
+        <button id="add-download" class="primary" type="button" disabled>
+          Add download
+        </button>
       </header>
 
       <section class="status-card" data-state="connecting" aria-live="polite">
@@ -27,9 +31,90 @@
         </div>
       </section>
 
+      <section class="downloads" aria-labelledby="downloads-title">
+        <div class="section-heading">
+          <h2 id="downloads-title">Downloads</h2>
+          <p>Progress refreshes twice per second.</p>
+        </div>
+        <p id="list-message" class="empty-message" aria-live="polite">
+          Loading downloads…
+        </p>
+        <div id="jobs" class="job-list"></div>
+      </section>
+
       <p class="privacy-note">
         Local only · Current Windows user · No telemetry or remote account
       </p>
     </main>
+
+    <dialog id="add-dialog" aria-labelledby="add-dialog-title">
+      <form id="add-form" method="dialog" novalidate>
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">New download</p>
+            <h2 id="add-dialog-title">Add a URL</h2>
+          </div>
+          <button
+            id="add-cancel"
+            class="icon-button"
+            type="button"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <label for="download-url">HTTP or HTTPS URL</label>
+        <input
+          id="download-url"
+          name="url"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://example.com/file.zip"
+          aria-describedby="url-error"
+        />
+        <p id="url-error" class="field-error" aria-live="polite"></p>
+
+        <label for="destination">Destination folder</label>
+        <div class="destination-row">
+          <input
+            id="destination"
+            name="destination"
+            type="text"
+            autocomplete="off"
+            placeholder="Choose a folder"
+            aria-describedby="destination-error"
+          />
+          <button id="choose-destination" class="secondary" type="button">
+            Browse…
+          </button>
+        </div>
+        <p id="destination-error" class="field-error" aria-live="polite"></p>
+
+        <section
+          id="url-preview"
+          class="preview"
+          aria-label="Download preview"
+          hidden
+        >
+          <p class="preview-label">Ready to download</p>
+          <strong id="preview-filename"></strong>
+          <span id="preview-size"></span>
+          <code id="preview-path"></code>
+        </section>
+
+        <p id="add-message" class="dialog-error" role="alert" hidden></p>
+
+        <div class="dialog-actions">
+          <button id="add-cancel-secondary" class="secondary" type="button">
+            Cancel
+          </button>
+          <button id="add-submit" class="primary" type="submit">
+            Check URL
+          </button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>

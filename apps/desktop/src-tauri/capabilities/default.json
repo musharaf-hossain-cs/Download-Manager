@@ -3,5 +3,5 @@
   "identifier": "desktop",
   "description": "Minimal capability set for the private-use desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }

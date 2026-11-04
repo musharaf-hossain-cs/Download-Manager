@@ -17,8 +17,11 @@ tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 download-manager-cli = { version = "0.1.0", path = "../../../crates/download-manager-cli" }
+download-manager-engine = { version = "0.1.0", path = "../../../crates/download-manager-engine" }
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "2.8.4"
 
 [lints]
 workspace = true

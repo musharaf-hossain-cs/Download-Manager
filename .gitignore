@@ -10,6 +10,7 @@ coverage/
 .vite/
 .turbo/
 *.tsbuildinfo
+apps/desktop/ui/generated/
 
 # Tauri / packaging
 src-tauri/target/

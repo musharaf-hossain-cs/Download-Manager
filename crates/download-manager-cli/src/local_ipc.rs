@@ -11,7 +11,7 @@ use std::{
 use download_manager_engine::{
     credentials::{CredentialError, CredentialRef, WindowsCredentialStore},
     domain::{HttpUrl, JobId},
-    ipc::JobAction,
+    ipc::{Envelope, JobAction, UiMessage, UiRequest},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -93,6 +93,9 @@ enum RequestPayload {
     StartQueue {
         name: String,
     },
+    Desktop {
+        request: Envelope<UiRequest>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -110,6 +113,7 @@ enum ResponsePayload {
     Job { job: JobView },
     Jobs { jobs: Vec<JobView> },
     Queue { queue: QueueStart },
+    Desktop { response: Envelope<UiMessage> },
 }
 
 /// Non-secret identity returned by the authenticated backend health check.
@@ -210,6 +214,20 @@ impl AuthenticatedIpcBackend {
     pub fn shutdown(&mut self) -> Result<(), BackendError> {
         match self.exchange(RequestPayload::Shutdown)? {
             ResponsePayload::Shutdown => Ok(()),
+            _ => Err(unexpected_response()),
+        }
+    }
+
+    /// Dispatches one versioned desktop UI request through the authenticated engine process.
+    ///
+    /// # Errors
+    /// Returns a typed engine rejection or transport failure.
+    pub fn desktop_request(
+        &mut self,
+        request: Envelope<UiRequest>,
+    ) -> Result<Envelope<UiMessage>, BackendError> {
+        match self.exchange(RequestPayload::Desktop { request })? {
+            ResponsePayload::Desktop { response } => Ok(response),
             _ => Err(unexpected_response()),
         }
     }
@@ -486,6 +504,9 @@ fn dispatch<B: CliBackend + ?Sized>(
         RequestPayload::StartQueue { name } => backend
             .start_queue(&name)
             .map(|queue| ResponsePayload::Queue { queue }),
+        RequestPayload::Desktop { request } => backend
+            .desktop_request(request)
+            .map(|response| ResponsePayload::Desktop { response }),
     }
     .map_err(WireError::from)
 }
@@ -594,7 +615,11 @@ fn format_backend_error(error: &BackendError) -> String {
 mod tests {
     use std::{fs, net::SocketAddr, thread, time::Duration};
 
-    use download_manager_engine::{domain::JobId, state::DownloadState};
+    use download_manager_engine::{
+        domain::{JobId, RequestId},
+        ipc::{Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
+        state::DownloadState,
+    };
 
     use super::{
         AuthenticatedIpcBackend, EndpointManifest, IPC_PROTOCOL_VERSION, LocalIpcError,
@@ -641,6 +666,22 @@ mod tests {
                 started_jobs: 1,
             })
         }
+
+        fn desktop_request(
+            &mut self,
+            request: Envelope<UiRequest>,
+        ) -> Result<Envelope<UiMessage>, BackendError> {
+            self.calls += 1;
+            Ok(Envelope::new(
+                UI_PROTOCOL_VERSION,
+                request.request_id,
+                UiMessage::Response {
+                    response: UiResponse::Health {
+                        engine_version: "fixture-desktop".to_owned(),
+                    },
+                },
+            ))
+        }
     }
 
     fn directory() -> std::path::PathBuf {
@@ -681,6 +722,42 @@ mod tests {
         });
 
         assert_eq!(client.list().expect("list jobs"), vec![expected]);
+        assert_eq!(server_thread.join().expect("server thread"), 1);
+        fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
+    fn authenticated_desktop_protocol_round_trip_preserves_request_identity() {
+        let directory = directory();
+        let token = "7".repeat(64);
+        let server = LocalIpcServer::bind_with_token(&directory, token.clone()).expect("bind");
+        let mut client =
+            AuthenticatedIpcBackend::discover_with_token(&directory, token).expect("discover");
+        let request_id = RequestId::new();
+        let server_thread = thread::spawn(move || {
+            let mut backend = FixtureBackend {
+                jobs: vec![job()],
+                calls: 0,
+                list_delay: Duration::ZERO,
+            };
+            server.serve_once(&mut backend).expect("serve request");
+            backend.calls
+        });
+
+        let response = client
+            .desktop_request(Envelope::new(
+                UI_PROTOCOL_VERSION,
+                request_id,
+                UiRequest::Health,
+            ))
+            .expect("desktop response");
+        assert_eq!(response.request_id, request_id);
+        assert!(matches!(
+            response.payload,
+            UiMessage::Response {
+                response: UiResponse::Health { engine_version }
+            } if engine_version == "fixture-desktop"
+        ));
         assert_eq!(server_thread.join().expect("server thread"), 1);
         fs::remove_dir_all(directory).expect("cleanup");
     }
