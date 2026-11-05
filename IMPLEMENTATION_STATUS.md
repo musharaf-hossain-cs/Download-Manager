@@ -4,7 +4,7 @@
 - Current milestone: Post-audit requirement completions (release blockers remain in `docs/TRACEABILITY.md`)
 - Status authority: `PROGRESSIVE_IMPLEMENTATION_PLAN.md`
 - Traceability format: `docs/TRACEABILITY.md`
-- Private-use track: PU01–PU06 (completion slices S194–S199) are complete; detailed evidence is in
+- Private-use track: PU01–PU07 (completion slices S194–S200) are complete; detailed evidence is in
   `docs/PRIVATE_USE_PLAN.md`. These private-track slices do not change the public v1 release rule.
 
 A slice is marked `DONE` only after its focused checks and all established fast regression checks pass. Long-running or externally hosted evidence is linked in the evidence cell when applicable.

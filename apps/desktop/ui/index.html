@@ -17,9 +17,14 @@
             HTTP and HTTPS downloads on this Windows account.
           </p>
         </div>
-        <button id="add-download" class="primary" type="button" disabled>
-          Add download
-        </button>
+        <div class="header-actions">
+          <button id="about-button" class="secondary" type="button">
+            About &amp; diagnostics
+          </button>
+          <button id="add-download" class="primary" type="button" disabled>
+            Add download
+          </button>
+        </div>
       </header>
 
       <section class="status-card" data-state="connecting" aria-live="polite">
@@ -115,6 +120,47 @@
           </button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="about-dialog" aria-labelledby="about-dialog-title">
+      <section class="about-panel">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Local information only</p>
+            <h2 id="about-dialog-title">About &amp; diagnostics</h2>
+          </div>
+          <button
+            id="about-close"
+            class="icon-button"
+            type="button"
+            aria-label="Close diagnostics"
+          >
+            ×
+          </button>
+        </div>
+        <dl class="diagnostics-list">
+          <div>
+            <dt>Product version</dt>
+            <dd id="product-version">—</dd>
+          </div>
+          <div>
+            <dt>Backend health</dt>
+            <dd id="diagnostic-health">—</dd>
+          </div>
+          <div>
+            <dt>State path</dt>
+            <dd><code id="state-path">—</code></dd>
+          </div>
+          <div>
+            <dt>Log path</dt>
+            <dd><code id="log-path">—</code></dd>
+          </div>
+        </dl>
+        <p class="diagnostics-note">
+          Diagnostics stay on this computer. This application has no upload
+          action.
+        </p>
+      </section>
     </dialog>
   </body>
 </html>

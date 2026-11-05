@@ -21,7 +21,8 @@ use download_manager_engine::{
     filename::{safe_destination, sanitize_windows_filename, select_filename},
     finalize::{ConflictPolicy, finalize_cross_volume},
     ipc::{
-        DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse,
+        DestructiveAction, DuplicateAction, Envelope, JobAction, UI_PROTOCOL_VERSION, UiMessage,
+        UiRequest, UiResponse,
     },
     probe::HttpProbe,
     recovery::{ReconciliationAction, reconcile_partial},
@@ -450,10 +451,11 @@ impl CliBackend for DownloadBackend {
                 }
                 Err(error) => backend_error_response(error),
             },
-            UiRequest::DestructiveJob { .. } => ui_rejected(
-                "unsupported_in_pu06",
-                "removing downloads is outside the PU06 desktop workflow",
-            ),
+            UiRequest::DestructiveJob {
+                job_id,
+                action,
+                confirmed_path,
+            } => self.remove_desktop_job(job_id, action, confirmed_path.as_deref()),
         };
         Ok(Envelope::new(
             UI_PROTOCOL_VERSION,
@@ -464,6 +466,84 @@ impl CliBackend for DownloadBackend {
 }
 
 impl DownloadBackend {
+    fn remove_desktop_job(
+        &self,
+        job_id: JobId,
+        action: DestructiveAction,
+        confirmed_path: Option<&Path>,
+    ) -> UiResponse {
+        let record = match load_job(&self.database, job_id) {
+            Ok(record) => record,
+            Err(error) => return backend_error_response(error),
+        };
+        if !matches!(
+            record.metadata.state,
+            DownloadState::Created
+                | DownloadState::Paused
+                | DownloadState::Completed
+                | DownloadState::NeedsAuthentication
+                | DownloadState::NeedsRefresh
+                | DownloadState::Blocked
+                | DownloadState::Failed
+                | DownloadState::Cancelled
+                | DownloadState::MissingLocalFile
+        ) {
+            return ui_rejected(
+                "job_active",
+                "cancel or pause the download before removing it",
+            );
+        }
+
+        let delete_file = action == DestructiveAction::DeleteFile;
+        if delete_file {
+            if record.metadata.state != DownloadState::Completed {
+                return ui_rejected(
+                    "file_delete_unavailable",
+                    "only a completed download can delete its published file",
+                );
+            }
+            let expected =
+                safe_destination(&record.metadata.destination, &record.metadata.filename);
+            if confirmed_path != Some(expected.as_path()) {
+                return ui_rejected(
+                    "confirmation_mismatch",
+                    format!("confirmation must target exactly {}", expected.display()),
+                );
+            }
+            if let Err(error) = fs::remove_file(&expected) {
+                return ui_rejected(
+                    "file_delete_failed",
+                    format!("could not delete {}: {error}", expected.display()),
+                );
+            }
+        } else if confirmed_path.is_some() {
+            return ui_rejected(
+                "confirmation_mismatch",
+                "record-only removal must not include a file path",
+            );
+        }
+
+        if record.metadata.state != DownloadState::Completed {
+            let partial = partial_path(&self.partial_directory, job_id);
+            if let Err(error) = fs::remove_file(&partial)
+                && error.kind() != io::ErrorKind::NotFound
+            {
+                return ui_rejected(
+                    "partial_delete_failed",
+                    format!("could not remove private partial data: {error}"),
+                );
+            }
+        }
+        match with_database(&self.database, |database| database.delete_job(job_id)) {
+            Ok(true) => UiResponse::JobRemoved {
+                job_id,
+                file_deleted: delete_file,
+            },
+            Ok(false) => ui_rejected("job_not_found", format!("job {job_id} does not exist")),
+            Err(error) => backend_error_response(BackendError::Transport(error)),
+        }
+    }
+
     fn desktop_jobs(&self) -> Result<Vec<JobMetadata>, BackendError> {
         let mut jobs = with_database(&self.database, |database| database.list_jobs())
             .map_err(BackendError::Transport)?
@@ -1035,8 +1115,11 @@ mod tests {
     };
 
     use download_manager_engine::{
-        domain::{HttpUrl, RequestId},
-        ipc::{DuplicateAction, Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
+        domain::{HttpUrl, JobId, JobMetadata, RequestId},
+        ipc::{
+            DestructiveAction, DuplicateAction, Envelope, UI_PROTOCOL_VERSION, UiMessage,
+            UiRequest, UiResponse,
+        },
         state::DownloadState,
     };
 
@@ -1180,6 +1263,54 @@ mod tests {
         }
     }
 
+    fn assert_record_only_removal_keeps_file(
+        backend: &mut DownloadBackend,
+        job_id: JobId,
+        completed_path: &std::path::Path,
+        expected: &[u8],
+    ) {
+        assert!(matches!(
+            desktop(
+                backend,
+                UiRequest::DestructiveJob {
+                    job_id,
+                    action: DestructiveAction::RemoveRecord,
+                    confirmed_path: None,
+                },
+            ),
+            UiResponse::JobRemoved {
+                job_id: removed_id,
+                file_deleted: false,
+            } if removed_id == job_id
+        ));
+        assert!(matches!(
+            desktop(backend, UiRequest::ListJobs),
+            UiResponse::Jobs { jobs } if jobs.is_empty()
+        ));
+        assert_eq!(
+            std::fs::read(completed_path).expect("record-only removal keeps completed file"),
+            expected
+        );
+    }
+
+    fn wait_for_desktop_completion(backend: &mut DownloadBackend, job_id: JobId) -> JobMetadata {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let UiResponse::Jobs { jobs } = desktop(backend, UiRequest::ListJobs) else {
+                panic!("expected job list");
+            };
+            let job = jobs
+                .into_iter()
+                .find(|job| job.id == job_id)
+                .expect("created job");
+            if job.state == DownloadState::Completed {
+                return job;
+            }
+            assert!(Instant::now() < deadline, "download did not complete");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn desktop_probe_add_and_list_use_the_real_download_worker() {
         let body = vec![0x5a; 128 * 1024];
@@ -1261,22 +1392,7 @@ mod tests {
             other => panic!("expected accepted job, got {other:?}"),
         };
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let completed = loop {
-            let response = desktop(&mut backend, UiRequest::ListJobs);
-            let UiResponse::Jobs { jobs } = response else {
-                panic!("expected job list");
-            };
-            let job = jobs
-                .into_iter()
-                .find(|job| job.id == job_id)
-                .expect("created job");
-            if job.state == DownloadState::Completed {
-                break job;
-            }
-            assert!(Instant::now() < deadline, "download did not complete");
-            thread::sleep(Duration::from_millis(20));
-        };
+        let completed = wait_for_desktop_completion(&mut backend, job_id);
 
         assert_eq!(completed.filename, filename);
         assert_eq!(completed.destination, destination);
@@ -1286,6 +1402,13 @@ mod tests {
             body
         );
         assert!(server.requests.load(Ordering::Relaxed) >= 3);
+
+        assert_record_only_removal_keeps_file(
+            &mut backend,
+            job_id,
+            &destination.join("fixture.bin"),
+            &body,
+        );
 
         drop(backend);
         std::fs::remove_dir_all(root).expect("cleanup");

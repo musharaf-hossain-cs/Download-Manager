@@ -181,15 +181,18 @@ Definition of done:
 
 ### Completion record
 
-Phase C maps PU05–PU06 to repository completion slices S198–S199. The one-window Tauri shell owns a
+Phase C maps PU05–PU07 to repository completion slices S198–S200. The one-window Tauri shell owns a
 current-user authenticated backend connection, starts the backend when it is absent, and leaves
 healthy backend-owned work running when the window closes. Its compiled TypeScript UI now carries
-the existing versioned desktop protocol through that connection for the initial URL-to-file flow.
+the existing versioned desktop protocol through that connection for the initial URL-to-file flow,
+durable controls, exact completed-file actions, current-user preferences, actionable failures, and
+local-only diagnostics.
 
 | Segment | Slice | Status | Evidence |
 | ------- | ----- | ------ | -------- |
 | PU05 | S198 | Complete | `cargo test -p download-manager-desktop` covers start, already-running discovery, failed start, unhealthy-start cleanup, and clean connection close without terminating a healthy backend. `pnpm --filter @download-manager/desktop tauri dev --no-watch` opens one real Windows WebView showing the connected backend version; closing it leaves the same backend process healthy, and reopening connects without spawning a replacement. |
 | PU06 | S199 | Complete | `cargo test -p download-manager-cli --lib` carries the typed UI envelope through authenticated local IPC and runs a real HTTP fixture through destination validation, filename preview, production add/list polling, live bytes, completed metadata, and exact output verification. The desktop TypeScript suite covers the Tauri transport/controller flow, invalid URL and unavailable-destination presentation, and status/progress/bytes/speed/ETA derivation; its 500 ms non-overlapping poll is compile-time and test asserted. |
+| PU07 | S200 | Complete | `cargo test -p download-manager-desktop --locked` covers durable current-user preferences, strict local-file targets, backend lifecycle, and local diagnostics boundaries. `cargo test -p download-manager-cli --lib --locked` runs record-only removal after a real fixture download while preserving the completed file; the real-download integration suite retains pause/restart/resume/cancel hash and publication coverage. The 116-test desktop suite covers typed pause/resume/cancel/removal requests, confirmed destructive actions, state-safe controls, exact Unicode completed paths, persisted last-directory reconstruction, native open/reveal commands, local-only diagnostics, and actionable network/disk/access/changed-remote guidance. |
 
 ### PU05 — Create the Tauri desktop shell and backend lifecycle
 

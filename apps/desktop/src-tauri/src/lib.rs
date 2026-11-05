@@ -1,5 +1,6 @@
 use std::{
-    path::PathBuf,
+    fs::{self, OpenOptions},
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
     thread,
@@ -8,11 +9,34 @@ use std::{
 
 use download_manager_cli::{AuthenticatedIpcBackend, BackendError};
 use download_manager_engine::ipc::decode_ui_request;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 const STARTUP_ATTEMPTS: usize = 200;
 const STARTUP_RETRY_DELAY: Duration = Duration::from_millis(50);
+const PREFERENCES_FILE: &str = "preferences.json";
+const BACKEND_LOG_FILE: &str = "backend.log";
+
+#[derive(Clone, Debug)]
+struct RuntimePaths {
+    root: PathBuf,
+    state: PathBuf,
+    logs: PathBuf,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopPreferences {
+    last_download_directory: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct DesktopDiagnostics {
+    product_version: String,
+    backend_health: String,
+    state_path: PathBuf,
+    log_path: PathBuf,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -182,6 +206,7 @@ impl BackendConnector for CurrentUserConnector {
 
 struct ProcessLauncher {
     executable: PathBuf,
+    log_file: PathBuf,
 }
 
 impl BackendLauncher for ProcessLauncher {
@@ -195,11 +220,32 @@ impl BackendLauncher for ProcessLauncher {
             ));
         }
 
+        if let Some(parent) = self.log_file.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "could not create backend log directory {}: {error}",
+                    parent.display()
+                )
+            })?;
+        }
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_file)
+            .map_err(|error| {
+                format!(
+                    "could not open backend log {}: {error}",
+                    self.log_file.display()
+                )
+            })?;
+        let stderr = log
+            .try_clone()
+            .map_err(|error| format!("could not prepare backend error log: {error}"))?;
         let mut command = Command::new(&self.executable);
         command
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(stderr));
         configure_background_process(&mut command);
         command
             .spawn()
@@ -241,10 +287,21 @@ struct DesktopState {
 
 impl DesktopState {
     fn initialize() -> Self {
-        let result = backend_executable().and_then(|executable| {
+        let result = runtime_paths().and_then(|paths| {
+            fs::create_dir_all(&paths.logs)
+                .map_err(|error| format!("Could not create the local log directory: {error}"))?;
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(paths.logs.join(BACKEND_LOG_FILE))
+                .map_err(|error| format!("Could not open the local backend log: {error}"))?;
+            let executable = backend_executable()?;
             connect_or_start(
                 &mut CurrentUserConnector,
-                &mut ProcessLauncher { executable },
+                &mut ProcessLauncher {
+                    executable,
+                    log_file: paths.logs.join(BACKEND_LOG_FILE),
+                },
                 STARTUP_ATTEMPTS,
                 STARTUP_RETRY_DELAY,
             )
@@ -273,6 +330,17 @@ impl DesktopState {
     }
 }
 
+fn runtime_paths() -> Result<RuntimePaths, String> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| "LOCALAPPDATA is unavailable for current-user desktop data".to_owned())?;
+    let root = PathBuf::from(local_app_data).join("DownloadManager");
+    Ok(RuntimePaths {
+        state: root.join("State"),
+        logs: root.join("Logs"),
+        root,
+    })
+}
+
 fn backend_executable() -> Result<PathBuf, String> {
     let current = std::env::current_exe()
         .map_err(|error| format!("Could not locate the desktop executable: {error}"))?;
@@ -289,6 +357,124 @@ fn backend_executable() -> Result<PathBuf, String> {
 #[allow(clippy::needless_pass_by_value)] // Tauri commands extract managed state by value.
 fn backend_status(state: tauri::State<'_, DesktopState>) -> BackendStatus {
     state.status.clone()
+}
+
+#[tauri::command]
+fn load_desktop_preferences() -> Result<DesktopPreferences, String> {
+    let path = runtime_paths()?.root.join(PREFERENCES_FILE);
+    load_preferences_at(&path)
+}
+
+#[tauri::command]
+fn save_last_download_directory(directory: PathBuf) -> Result<(), String> {
+    if !directory.is_absolute() || !directory.is_dir() {
+        return Err("The last download directory must be an existing absolute folder.".to_owned());
+    }
+    let path = runtime_paths()?.root.join(PREFERENCES_FILE);
+    save_preferences_at(
+        &path,
+        &DesktopPreferences {
+            last_download_directory: Some(directory),
+        },
+    )
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri commands extract managed state by value.
+fn desktop_diagnostics(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<DesktopDiagnostics, String> {
+    let paths = runtime_paths()?;
+    let backend_health = {
+        let mut session = state
+            .session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match session.as_mut().and_then(LifecycleSession::connection_mut) {
+            Some(backend) => match backend.health() {
+                Ok(health) => format!("Healthy (backend {})", health.version),
+                Err(error) => format!("Unavailable ({})", format_backend_error(error)),
+            },
+            None => format!("Unavailable ({})", state.status.message),
+        }
+    };
+    Ok(DesktopDiagnostics {
+        product_version: env!("CARGO_PKG_VERSION").to_owned(),
+        backend_health,
+        state_path: paths.state,
+        log_path: paths.logs.join(BACKEND_LOG_FILE),
+    })
+}
+
+#[tauri::command]
+fn open_local_file(path: PathBuf) -> Result<(), String> {
+    validate_local_target(&path, false)?;
+    launch_local_target(
+        "rundll32.exe",
+        ["url.dll,FileProtocolHandler".into(), path.into()],
+    )
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri commands deserialize owned path arguments.
+fn reveal_local_file(path: PathBuf) -> Result<(), String> {
+    validate_local_target(&path, false)?;
+    launch_local_target(
+        "explorer.exe",
+        [format!("/select,{}", path.display()).into()],
+    )
+}
+
+fn validate_local_target(path: &Path, directory: bool) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("The local target must be an absolute path.".to_owned());
+    }
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("The local target is unavailable: {error}"))?;
+    if (directory && !metadata.is_dir()) || (!directory && !metadata.is_file()) {
+        return Err("The local target has an unexpected type.".to_owned());
+    }
+    Ok(())
+}
+
+fn launch_local_target<const N: usize>(
+    program: &str,
+    arguments: [std::ffi::OsString; N],
+) -> Result<(), String> {
+    let mut command = Command::new(program);
+    command
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    configure_background_process(&mut command);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Windows could not open the local target: {error}"))
+}
+
+fn load_preferences_at(path: &Path) -> Result<DesktopPreferences, String> {
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Desktop preferences are invalid: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(DesktopPreferences::default())
+        }
+        Err(error) => Err(format!("Desktop preferences could not be read: {error}")),
+    }
+}
+
+fn save_preferences_at(path: &Path, preferences: &DesktopPreferences) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Desktop preferences path has no parent directory.".to_owned())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Desktop preferences directory could not be created: {error}"))?;
+    let bytes = serde_json::to_vec(preferences)
+        .map_err(|error| format!("Desktop preferences could not be encoded: {error}"))?;
+    fs::write(path, bytes)
+        .map_err(|error| format!("Desktop preferences could not be saved: {error}"))
 }
 
 #[tauri::command]
@@ -329,7 +515,15 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(DesktopState::initialize())
-        .invoke_handler(tauri::generate_handler![backend_status, backend_request])
+        .invoke_handler(tauri::generate_handler![
+            backend_status,
+            backend_request,
+            load_desktop_preferences,
+            save_last_download_directory,
+            desktop_diagnostics,
+            open_local_file,
+            reveal_local_file
+        ])
         .build(tauri::generate_context!())
         .expect("failed to build the Download Manager desktop shell");
 
@@ -342,9 +536,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::Cell, collections::VecDeque, rc::Rc, time::Duration};
+    use std::{
+        cell::Cell,
+        collections::VecDeque,
+        fs,
+        rc::Rc,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
 
-    use super::{BackendConnector, BackendLauncher, BackendOrigin, ManagedChild, connect_or_start};
+    use super::{
+        BackendConnector, BackendLauncher, BackendOrigin, DesktopPreferences, ManagedChild,
+        connect_or_start, load_preferences_at, save_preferences_at, validate_local_target,
+    };
 
     #[derive(Clone)]
     struct DropProbe(Rc<Cell<usize>>);
@@ -533,5 +736,46 @@ mod tests {
         assert!(error.contains("health unavailable"));
         assert_eq!(harness.terminated.get(), 1);
         assert_eq!(harness.child_drops.get(), 1);
+    }
+
+    #[test]
+    fn current_user_preferences_survive_a_desktop_reopen() {
+        let directory = test_directory("preferences");
+        let path = directory.join("preferences.json");
+        let expected = DesktopPreferences {
+            last_download_directory: Some(directory.join("downloads")),
+        };
+
+        save_preferences_at(&path, &expected).expect("save preferences");
+        assert_eq!(
+            load_preferences_at(&path).expect("reload preferences"),
+            expected
+        );
+        fs::remove_dir_all(directory).expect("cleanup preferences");
+    }
+
+    #[test]
+    fn local_open_boundary_requires_an_existing_absolute_file() {
+        let directory = test_directory("open-target");
+        let file = directory.join("বাংলা archive.zip");
+        fs::write(&file, b"fixture").expect("write target");
+
+        assert!(validate_local_target(&file, false).is_ok());
+        assert!(validate_local_target(&directory, false).is_err());
+        assert!(validate_local_target(std::path::Path::new("relative.zip"), false).is_err());
+        fs::remove_dir_all(directory).expect("cleanup target");
+    }
+
+    fn test_directory(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "download-manager-desktop-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("test directory");
+        path
     }
 }

@@ -1,7 +1,15 @@
 import { AddUrlDialogController } from "./add-url-dialog.js";
 import { DownloadListController } from "./download-list.js";
 import { EngineClient } from "./engine-client.js";
+import {
+  actionableError,
+  availableJobButtons,
+  completedFilePath,
+  confirmJobAction,
+  type JobButtonAction,
+} from "./private-use-actions.js";
 import { presentJob, formatBytes } from "./private-use-presenter.js";
+import { PrivateUseDesktopServices } from "./private-use-services.js";
 import type { DownloadJob } from "./protocol.js";
 import { SegmentDetailController } from "./segment-detail.js";
 import { TauriEngineTransport, type TauriInvoke } from "./tauri-transport.js";
@@ -30,6 +38,7 @@ declare global {
 }
 
 type ChooseDestination = () => Promise<string | null>;
+type ConfirmAction = (message: string) => boolean;
 
 export class PrivateUseApp {
   readonly #engine: EngineClient;
@@ -41,6 +50,7 @@ export class PrivateUseApp {
   readonly #statusMessage: HTMLElement;
   readonly #backendVersion: HTMLElement;
   readonly #addButton: HTMLButtonElement;
+  readonly #aboutButton: HTMLButtonElement;
   readonly #jobs: HTMLElement;
   readonly #listMessage: HTMLElement;
   readonly #dialog: HTMLDialogElement;
@@ -55,15 +65,26 @@ export class PrivateUseApp {
   readonly #previewPath: HTMLElement;
   readonly #previewSize: HTMLElement;
   readonly #submitButton: HTMLButtonElement;
+  readonly #aboutDialog: HTMLDialogElement;
+  readonly #aboutClose: HTMLButtonElement;
+  readonly #productVersion: HTMLElement;
+  readonly #diagnosticHealth: HTMLElement;
+  readonly #statePath: HTMLElement;
+  readonly #logPath: HTMLElement;
+  readonly #jobMessages = new Map<string, string>();
+  readonly #busyJobs = new Set<string>();
   #timer: number | null = null;
   #stopped = false;
   #dialogBusy = false;
   #addMessage: string | null = null;
+  #refreshPromise: Promise<void> | null = null;
 
   public constructor(
     private readonly document: Document,
     transport: TauriEngineTransport,
     private readonly chooseDestination: ChooseDestination,
+    private readonly desktop: PrivateUseDesktopServices,
+    private readonly confirmAction: ConfirmAction,
   ) {
     this.#engine = new EngineClient(transport);
     this.#addController = new AddUrlDialogController(this.#engine);
@@ -73,6 +94,7 @@ export class PrivateUseApp {
     this.#statusMessage = required(document, "#status-message");
     this.#backendVersion = required(document, "#backend-version");
     this.#addButton = required(document, "#add-download");
+    this.#aboutButton = required(document, "#about-button");
     this.#jobs = required(document, "#jobs");
     this.#listMessage = required(document, "#list-message");
     this.#dialog = required(document, "#add-dialog");
@@ -87,6 +109,12 @@ export class PrivateUseApp {
     this.#previewPath = required(document, "#preview-path");
     this.#previewSize = required(document, "#preview-size");
     this.#submitButton = required(document, "#add-submit");
+    this.#aboutDialog = required(document, "#about-dialog");
+    this.#aboutClose = required(document, "#about-close");
+    this.#productVersion = required(document, "#product-version");
+    this.#diagnosticHealth = required(document, "#diagnostic-health");
+    this.#statePath = required(document, "#state-path");
+    this.#logPath = required(document, "#log-path");
     this.#bindEvents();
   }
 
@@ -100,6 +128,7 @@ export class PrivateUseApp {
       this.#backendVersion.textContent = `Backend ${version}`;
       this.#backendVersion.hidden = false;
       this.#addButton.disabled = false;
+      await this.#restorePreferences();
       await this.#refreshJobs();
       this.#schedulePoll();
     } catch (error) {
@@ -117,6 +146,11 @@ export class PrivateUseApp {
   }
 
   #bindEvents(): void {
+    this.#aboutButton.addEventListener(
+      "click",
+      () => void this.#showDiagnostics(),
+    );
+    this.#aboutClose.addEventListener("click", () => this.#aboutDialog.close());
     this.#addButton.addEventListener("click", () => {
       this.#addMessage = null;
       this.#renderDialog();
@@ -158,9 +192,14 @@ export class PrivateUseApp {
       this.#destinationInput.value = destination;
       this.#addController.setDestination(destination);
       this.#addMessage = null;
+      try {
+        await this.desktop.saveLastDownloadDirectory(destination);
+      } catch (error) {
+        this.#addMessage = `Folder selected, but it could not be remembered: ${actionableError(error)}`;
+      }
       this.#renderDialog();
     } catch (error) {
-      this.#addMessage = errorMessage(error, "Could not open folder picker");
+      this.#addMessage = actionableError(error);
       this.#renderDialog();
     }
   }
@@ -176,12 +215,18 @@ export class PrivateUseApp {
         return;
       }
       await this.#addController.submit("now", "add_duplicate");
+      const directory = this.#destinationInput.value.trim();
+      try {
+        await this.desktop.saveLastDownloadDirectory(directory);
+      } catch (error) {
+        this.#statusMessage.textContent = `Download started, but the last folder could not be remembered: ${actionableError(error)}`;
+      }
       this.#addController.setUrl("");
       this.#urlInput.value = "";
       this.#dialog.close();
       await this.#refreshJobs();
     } catch (error) {
-      this.#addMessage = errorMessage(error, "Could not add the download");
+      this.#addMessage = actionableError(error);
     } finally {
       this.#dialogBusy = false;
       this.#renderDialog();
@@ -217,8 +262,20 @@ export class PrivateUseApp {
   }
 
   async #refreshJobs(): Promise<void> {
-    await this.#listController.load();
-    this.#renderJobs();
+    if (this.#refreshPromise !== null) {
+      await this.#refreshPromise;
+      return;
+    }
+    const refresh = (async () => {
+      await this.#listController.load();
+      this.#renderJobs();
+    })();
+    this.#refreshPromise = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (this.#refreshPromise === refresh) this.#refreshPromise = null;
+    }
   }
 
   #schedulePoll(): void {
@@ -230,7 +287,7 @@ export class PrivateUseApp {
 
   async #poll(): Promise<void> {
     try {
-      await this.#refreshJobs();
+      if (this.#busyJobs.size === 0) await this.#refreshJobs();
     } finally {
       this.#schedulePoll();
     }
@@ -246,7 +303,7 @@ export class PrivateUseApp {
       return;
     }
     if (state.status === "error") {
-      this.#listMessage.textContent = `Downloads could not be refreshed: ${state.message}`;
+      this.#listMessage.textContent = `Downloads could not be refreshed: ${actionableError(new Error(state.message))}`;
       this.#listMessage.hidden = false;
       return;
     }
@@ -304,12 +361,110 @@ export class PrivateUseApp {
     if (job.error !== null) {
       const error = this.document.createElement("p");
       error.className = "job-error";
-      error.textContent = job.error;
+      error.textContent = actionableError(new Error(job.error));
       article.append(header, destination, progress, metrics, error);
     } else {
       article.append(header, destination, progress, metrics);
     }
+    const message = this.#jobMessages.get(job.id);
+    if (message !== undefined) {
+      const actionMessage = this.document.createElement("p");
+      actionMessage.className = "job-action-message";
+      actionMessage.setAttribute("role", "alert");
+      actionMessage.textContent = message;
+      article.append(actionMessage);
+    }
+    const actions = this.document.createElement("div");
+    actions.className = "job-actions";
+    for (const descriptor of availableJobButtons(job)) {
+      const button = this.document.createElement("button");
+      button.type = "button";
+      button.className = descriptor.destructive
+        ? "job-action danger"
+        : "job-action";
+      button.textContent = descriptor.label;
+      button.disabled = this.#busyJobs.has(job.id);
+      button.addEventListener(
+        "click",
+        () => void this.#runJobAction(job, descriptor.action),
+      );
+      actions.append(button);
+    }
+    if (actions.childElementCount > 0) article.append(actions);
     return article;
+  }
+
+  async #restorePreferences(): Promise<void> {
+    try {
+      const preferences = await this.desktop.loadPreferences();
+      const directory = preferences.last_download_directory;
+      if (directory !== null) {
+        this.#destinationInput.value = directory;
+        this.#addController.setDestination(directory);
+      }
+    } catch (error) {
+      this.#statusMessage.textContent = `Connected, but preferences could not be loaded: ${actionableError(error)}`;
+    }
+  }
+
+  async #showDiagnostics(): Promise<void> {
+    this.#productVersion.textContent = "Loading…";
+    this.#diagnosticHealth.textContent = "Checking…";
+    this.#statePath.textContent = "—";
+    this.#logPath.textContent = "—";
+    this.#aboutDialog.showModal();
+    this.#aboutClose.focus();
+    try {
+      const diagnostics = await this.desktop.diagnostics();
+      this.#productVersion.textContent = diagnostics.product_version;
+      this.#diagnosticHealth.textContent = diagnostics.backend_health;
+      this.#statePath.textContent = diagnostics.state_path;
+      this.#logPath.textContent = diagnostics.log_path;
+    } catch (error) {
+      this.#diagnosticHealth.textContent = actionableError(error);
+    }
+  }
+
+  async #runJobAction(
+    job: DownloadJob,
+    action: JobButtonAction,
+  ): Promise<void> {
+    if (this.#busyJobs.has(job.id)) return;
+    if (!confirmJobAction(job, action, this.confirmAction)) return;
+
+    this.#busyJobs.add(job.id);
+    this.#jobMessages.delete(job.id);
+    this.#renderJobs();
+    try {
+      if (this.#refreshPromise !== null) await this.#refreshPromise;
+      if (action === "open") {
+        await this.desktop.openFile(completedFilePath(job));
+      } else if (action === "reveal") {
+        await this.desktop.revealFile(completedFilePath(job));
+      } else if (action === "remove") {
+        const confirmation = this.#listController.prepareRemoval(job.id, false);
+        if (
+          confirmation === null ||
+          !(await this.#listController.remove(confirmation))
+        ) {
+          throw new Error(
+            this.#listController.controlError?.message ??
+              "This download cannot be removed in its current state.",
+          );
+        }
+      } else if (!(await this.#listController.control(job.id, action))) {
+        throw new Error(
+          this.#listController.controlError?.message ??
+            "The backend rejected this action.",
+        );
+      }
+      await this.#refreshJobs();
+    } catch (error) {
+      this.#jobMessages.set(job.id, actionableError(error));
+    } finally {
+      this.#busyJobs.delete(job.id);
+      this.#renderJobs();
+    }
   }
 
   #showFailure(message: string): void {
@@ -356,14 +511,21 @@ if (tauri !== undefined) {
   const invoke: TauriInvoke = (command, arguments_) =>
     tauri.core.invoke(command, arguments_);
   const transport = new TauriEngineTransport(invoke);
-  const app = new PrivateUseApp(globalThis.document, transport, async () => {
-    const selected = await tauri.dialog.open({
-      directory: true,
-      multiple: false,
-      title: "Choose download destination",
-    });
-    return typeof selected === "string" ? selected : null;
-  });
+  const desktop = new PrivateUseDesktopServices(invoke);
+  const app = new PrivateUseApp(
+    globalThis.document,
+    transport,
+    async () => {
+      const selected = await tauri.dialog.open({
+        directory: true,
+        multiple: false,
+        title: "Choose download destination",
+      });
+      return typeof selected === "string" ? selected : null;
+    },
+    desktop,
+    (message) => globalThis.confirm(message),
+  );
   void app.start();
   globalThis.addEventListener("beforeunload", () => void app.stop(), {
     once: true,
