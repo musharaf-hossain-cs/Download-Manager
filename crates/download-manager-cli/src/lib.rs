@@ -24,6 +24,7 @@ Usage:\n  download-manager-cli add URL --output DIRECTORY [--name FILENAME] [--l
 download-manager-cli list [--json]\n  download-manager-cli status JOB_ID [--json]\n  \
 download-manager-cli pause|resume|cancel JOB_ID [--json]\n  \
 download-manager-cli queue start NAME [--quiet] [--json]\n  \
+download-manager-cli health [--json]\n  download-manager-cli shutdown [--json]\n  \
 download-manager-cli --version\n";
 
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -111,6 +112,22 @@ pub enum BackendError {
 
 /// Engine-client boundary used by the CLI. Implementations must use authenticated local IPC.
 pub trait CliBackend {
+    /// Reads authenticated backend health for local diagnostics.
+    ///
+    /// # Errors
+    /// Returns a transport error when no authenticated backend is available.
+    fn health(&mut self) -> Result<BackendHealth, BackendError> {
+        Err(unavailable())
+    }
+
+    /// Requests an authenticated clean shutdown of the current-user backend.
+    ///
+    /// # Errors
+    /// Returns a transport error when shutdown cannot be acknowledged.
+    fn shutdown(&mut self) -> Result<(), BackendError> {
+        Err(unavailable())
+    }
+
     /// Adds one validated URL.
     ///
     /// # Errors
@@ -191,6 +208,8 @@ fn unavailable() -> BackendError {
 enum Command {
     Help,
     Version,
+    Health,
+    Shutdown,
     Add(AddCommand),
     List,
     Status(JobId),
@@ -294,6 +313,14 @@ where
             ),
             CliExit::Success,
         ),
+        Command::Health => match backend.health() {
+            Ok(health) => emit_health(parsed.json, &health, stdout),
+            Err(error) => emit_backend_error(parsed.json, "health", &error, stderr),
+        },
+        Command::Shutdown => match backend.shutdown() {
+            Ok(()) => emit_shutdown(parsed.json, stdout),
+            Err(error) => emit_backend_error(parsed.json, "shutdown", &error, stderr),
+        },
         Command::Add(command) => match backend.add(command.request) {
             Ok(job) => {
                 let job = if let Some(timeout) = command.wait_timeout {
@@ -354,6 +381,8 @@ fn parse(args: Vec<OsString>) -> Result<Parsed, String> {
     let command = match command {
         "--help" | "-h" if filtered.len() == 1 => Command::Help,
         "--version" | "-V" if filtered.len() == 1 => Command::Version,
+        "health" if filtered.len() == 1 => Command::Health,
+        "shutdown" if filtered.len() == 1 => Command::Shutdown,
         "add" => Command::Add(parse_add(&filtered[1..])?),
         "list" if filtered.len() == 1 => Command::List,
         "status" if filtered.len() == 2 => {
@@ -376,8 +405,8 @@ fn parse(args: Vec<OsString>) -> Result<Parsed, String> {
             }
         }
         "queue" => parse_queue(&filtered[1..])?,
-        "list" | "status" | "pause" | "resume" | "cancel" | "--help" | "-h" | "--version"
-        | "-V" => {
+        "list" | "status" | "pause" | "resume" | "cancel" | "health" | "shutdown" | "--help"
+        | "-h" | "--version" | "-V" => {
             return Err(format!("invalid arguments for {command}\n\n{HELP}"));
         }
         value => return Err(format!("unknown command: {value}\n\n{HELP}")),
@@ -653,6 +682,47 @@ fn emit_jobs<O: Write>(json: bool, jobs: &[JobView], stdout: &mut O) -> CliExit 
     }
 }
 
+fn emit_health<O: Write>(json: bool, health: &BackendHealth, stdout: &mut O) -> CliExit {
+    if json {
+        emit_json(
+            stdout,
+            &SuccessEnvelope {
+                contract_version: CLI_CONTRACT_VERSION,
+                command: "health",
+                ok: true,
+                data: health,
+            },
+        )
+    } else {
+        emit_text(
+            stdout,
+            &format!("Backend {} is healthy.\n", health.version),
+            CliExit::Success,
+        )
+    }
+}
+
+fn emit_shutdown<O: Write>(json: bool, stdout: &mut O) -> CliExit {
+    #[derive(Serialize)]
+    struct ShutdownResult {
+        stopped: bool,
+    }
+
+    if json {
+        emit_json(
+            stdout,
+            &SuccessEnvelope {
+                contract_version: CLI_CONTRACT_VERSION,
+                command: "shutdown",
+                ok: true,
+                data: ShutdownResult { stopped: true },
+            },
+        )
+    } else {
+        emit_text(stdout, "Backend shut down.\n", CliExit::Success)
+    }
+}
+
 fn total(value: Option<u64>) -> String {
     value.map_or_else(|| "-".to_owned(), |value| value.to_string())
 }
@@ -718,8 +788,8 @@ mod tests {
     use download_manager_engine::{domain::JobId, ipc::JobAction, state::DownloadState};
 
     use super::{
-        AddRequest, BackendError, CliBackend, CliExit, JobView, QueueStart, WaitControl,
-        WaitSignal, run, run_with_waiter,
+        AddRequest, BackendError, BackendHealth, CliBackend, CliExit, JobView, QueueStart,
+        WaitControl, WaitSignal, run, run_with_waiter,
     };
 
     const JOB_ID: &str = "123e4567-e89b-12d3-a456-426614174000";
@@ -733,9 +803,21 @@ mod tests {
         control_error: Option<BackendError>,
         wait_states: VecDeque<DownloadState>,
         started_queues: Vec<String>,
+        shutdown_requested: bool,
     }
 
     impl CliBackend for FixtureBackend {
+        fn health(&mut self) -> Result<BackendHealth, BackendError> {
+            Ok(BackendHealth {
+                version: "0.1.0".to_owned(),
+            })
+        }
+
+        fn shutdown(&mut self) -> Result<(), BackendError> {
+            self.shutdown_requested = true;
+            Ok(())
+        }
+
         fn add(&mut self, request: AddRequest) -> Result<JobView, BackendError> {
             self.added.push(request);
             Ok(self.jobs[0].clone())
@@ -906,6 +988,35 @@ mod tests {
             )
         );
         assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn health_and_shutdown_are_authenticated_diagnostic_commands() {
+        let mut backend = FixtureBackend::default();
+        let (health_exit, health_stdout, health_stderr) =
+            invoke(&["health", "--json"], &mut backend);
+        assert_eq!(health_exit, CliExit::Success);
+        assert_eq!(
+            health_stdout,
+            concat!(
+                r#"{"contract_version":1,"command":"health","ok":true,"data":{"version":"0.1.0"}}"#,
+                "\n"
+            )
+        );
+        assert_eq!(health_stderr, "");
+
+        let (shutdown_exit, shutdown_stdout, shutdown_stderr) =
+            invoke(&["shutdown", "--json"], &mut backend);
+        assert_eq!(shutdown_exit, CliExit::Success);
+        assert_eq!(
+            shutdown_stdout,
+            concat!(
+                r#"{"contract_version":1,"command":"shutdown","ok":true,"data":{"stopped":true}}"#,
+                "\n"
+            )
+        );
+        assert_eq!(shutdown_stderr, "");
+        assert!(backend.shutdown_requested);
     }
 
     #[test]

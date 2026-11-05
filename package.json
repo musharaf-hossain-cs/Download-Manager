@@ -18,6 +18,7 @@
     "test:browser-regression": "node scripts/browser-regression.mjs",
     "test:chromium-p1-regression": "node scripts/chromium-p1-regression.mjs",
     "test:private-use-prerequisites": "node scripts/private-use-prerequisites.test.mjs",
+    "test:private-use-installer-contract": "node scripts/private-use-installer.test.mjs",
     "test:firefox-regression": "node scripts/firefox-regression.mjs",
     "test:release-candidate": "pwsh -File scripts/release-candidate-journey.ps1",
     "test:release-candidate-contract": "node scripts/release-candidate-journey.test.mjs",

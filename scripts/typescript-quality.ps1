@@ -38,6 +38,7 @@ Invoke-Checked 'ESLint' { pnpm lint }
 Invoke-Checked 'TypeScript build' { pnpm build }
 Invoke-Checked 'TypeScript typecheck' { pnpm typecheck }
 Invoke-Checked 'Vitest' { pnpm test }
+Invoke-Checked 'Private-use installer contract' { pnpm test:private-use-installer-contract }
 
 Write-Host 'TypeScript quality gates passed.'
 

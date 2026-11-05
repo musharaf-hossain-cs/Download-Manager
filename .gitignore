@@ -15,6 +15,7 @@ apps/desktop/ui/generated/
 # Tauri / packaging
 src-tauri/target/
 **/src-tauri/gen/
+apps/desktop/src-tauri/binaries/
 *.msi
 *.msix
 *.appx

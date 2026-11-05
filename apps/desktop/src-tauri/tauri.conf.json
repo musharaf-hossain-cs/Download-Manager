@@ -30,7 +30,21 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "nsis"
+    "active": true,
+    "targets": "nsis",
+    "icon": ["icons/icon.ico"],
+    "externalBin": [
+      "binaries/download-manager-backend",
+      "binaries/download-manager-cli"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "nsis-hooks.nsh"
+      }
+    }
   }
 }

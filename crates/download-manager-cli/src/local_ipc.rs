@@ -270,6 +270,14 @@ impl AuthenticatedIpcBackend {
 }
 
 impl CliBackend for AuthenticatedIpcBackend {
+    fn health(&mut self) -> Result<BackendHealth, BackendError> {
+        AuthenticatedIpcBackend::health(self)
+    }
+
+    fn shutdown(&mut self) -> Result<(), BackendError> {
+        AuthenticatedIpcBackend::shutdown(self)
+    }
+
     fn add(&mut self, request: AddRequest) -> Result<JobView, BackendError> {
         match self.exchange(RequestPayload::Add {
             source_url: request.source_url,
