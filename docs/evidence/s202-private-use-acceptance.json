@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "slice": "S202",
+  "segment": "PU09",
+  "status": "passed",
+  "started_at_utc": "2026-11-10T16:05:51Z",
+  "finished_at_utc": "2026-11-10T21:15:12.3861730Z",
+  "source": {
+    "commit_before_slice": "7607558876c3019422ac746f8e3ca395d5507f88",
+    "product_version": "0.1.0",
+    "target": "x86_64-pc-windows-msvc",
+    "fixture_script": "scripts/private-use-acceptance-fixture.mjs",
+    "fixture_script_sha256": "f0b2a9c033db1b1077e888645018aa348f1d9300f7d967975beba53007a7a9e9"
+  },
+  "host": {
+    "caption": "Microsoft Windows 10 Pro",
+    "version": "10.0.19045",
+    "build": 19045,
+    "architecture": "64-bit",
+    "account_token_is_administrator": false,
+    "display_dpi": 120
+  },
+  "tools": {
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "cargo": "1.99.1 (5f94df478 2026-08-27)",
+    "node": "24.22.1",
+    "pnpm": "12.15.0"
+  },
+  "commands": [
+    "pwsh -NoProfile -File scripts/verify.ps1",
+    "cargo test --locked -p download-manager-engine --lib resume::tests::resumed_transfer_pauses_while_the_peer_stalls_before_the_body -- --exact --nocapture",
+    "$env:CARGO_TARGET_DIR=<new test-results/pu09/clean-target>; pwsh -NoProfile -File scripts/build-private-use-installer.ps1 -OutputDirectory <test-results/pu09/artifacts>",
+    "node scripts/private-use-acceptance-fixture.mjs --port 49321 --manifest <fixture-manifest.json> --identity-file <changing-identity.txt>",
+    "<installed download-manager-cli.exe> add|status|pause|resume|cancel|health|shutdown --json",
+    "<installed uninstall.exe> /S"
+  ],
+  "installer": {
+    "filename": "download-manager-0.1.0-windows-x64-setup.exe",
+    "size": 4554532,
+    "sha256": "eaa287f31b28a1895cd2da1d8c2fcf7691de047273ead703fcb490469087a5f6",
+    "sha256_record_matched": true,
+    "clean_target_reused": false,
+    "installed_without_administrator_token": true,
+    "installed_path": "%LOCALAPPDATA%\\Programs\\Download Manager",
+    "start_menu_shortcut_launched_gui": true,
+    "installed_gui_backend_and_cli_paths_verified": true
+  },
+  "warnings": {
+    "mark_of_the_web_present": false,
+    "smartscreen": "none observed for the locally built artifact",
+    "defender": "no Download Manager-related detection or configuration warning was recorded",
+    "defender_record_ids_observed": {
+      "before": 39145,
+      "after": 39160
+    }
+  },
+  "fixtures": {
+    "small": {
+      "filename": "pu09-small.txt",
+      "size": 35,
+      "expected_sha256": "e2feb55ba79d3ddc200cf9e5e0674ec87b49b8519b746d919f7f7239bd73b709",
+      "actual_sha256": "e2feb55ba79d3ddc200cf9e5e0674ec87b49b8519b746d919f7f7239bd73b709",
+      "gui_add_and_progress": "passed",
+      "open_file": "passed; Notepad opened the exact fixture",
+      "open_containing_folder": "passed; Explorer selected one 35-byte item in the exact destination"
+    },
+    "unknown_length": {
+      "filename": "pu09-unknown.bin",
+      "size": 1048595,
+      "reported_total_bytes": null,
+      "expected_sha256": "5dec2e56437880ad7a7c733bbc653534b7d6e29cf0e57c1f69cee60e5dd1ada4",
+      "actual_sha256": "5dec2e56437880ad7a7c733bbc653534b7d6e29cf0e57c1f69cee60e5dd1ada4"
+    },
+    "large_reboot_resume": {
+      "filename": "pu09-large.bin",
+      "size": 67109001,
+      "paused_bytes": 1441792,
+      "pre_reboot_partial_sha256": "5df569e6b148a563aecdcb6f01a904d71a3b75ea49740b117a6a34339f708b3b",
+      "post_reboot_partial_sha256": "5df569e6b148a563aecdcb6f01a904d71a3b75ea49740b117a6a34339f708b3b",
+      "expected_sha256": "12320cac61d4f0767dbe0de3a94ce2ba62b3d5b31e938bb92fc71260b87ed954",
+      "actual_sha256": "12320cac61d4f0767dbe0de3a94ce2ba62b3d5b31e938bb92fc71260b87ed954"
+    }
+  },
+  "journeys": {
+    "visible_filename_status_bytes_speed_and_progress": "passed in the installed GUI",
+    "close_relaunch_preserved_paused_job_and_backend": true,
+    "cancelled_active_job_without_final_publication": true,
+    "changed_remote_refused_unsafe_append": {
+      "state": "failed",
+      "reason": "remote object identity changed: ETag changed or disappeared",
+      "partial_size": 1114112,
+      "partial_sha256_before": "0cc25100bae0ce921ea0cfe8b939daacb5274fa0d45b29351291643986522ee1",
+      "partial_sha256_after": "0cc25100bae0ce921ea0cfe8b939daacb5274fa0d45b29351291643986522ee1",
+      "final_file_published": false,
+      "actionable_gui_guidance_present": true
+    },
+    "reboot_recovery": {
+      "pre_boot_time_utc": "2026-11-10T09:47:23.1937750Z",
+      "post_boot_time_utc": "2026-11-10T17:02:36.5000000Z",
+      "boot_time_advanced": true,
+      "recovered_state": "paused",
+      "checkpoint_bytes_unchanged": true,
+      "resumed_to_exact_output": true
+    },
+    "uninstall": {
+      "install_directory_removed": true,
+      "start_menu_shortcut_removed": true,
+      "installed_processes_remaining": 0,
+      "completed_fixture_hashes_unchanged": true,
+      "application_state_choice": "kept by the conservative silent uninstaller",
+      "pre_run_state_restored_byte_for_byte": true,
+      "pre_run_state_sha256": "39265f0ed6452a1635da06dfdd1f93d5150bc090d12306124b1c89d71a37c479"
+    }
+  },
+  "continuations": [
+    {
+      "id": "PU09-C1",
+      "status": "resolved",
+      "scope": "Synchronize the stalled-resume pause test on the ranged GET instead of a wall-clock delay.",
+      "cause": "The full workspace gate could request pause before the second fixture request under linker/test load.",
+      "evidence": "The focused test passed once after the fix and then passed five consecutive repeats; the final fast gate passed."
+    }
+  ],
+  "boundaries": [
+    "All transfer fixtures were deterministic loopback HTTP resources on this laptop.",
+    "Browser interception, public release readiness, code signing, and SmartScreen reputation remain outside the private-use milestone.",
+    "An unrelated concurrent job was left untouched and excluded from PU09 evidence."
+  ],
+  "failure": null
+}

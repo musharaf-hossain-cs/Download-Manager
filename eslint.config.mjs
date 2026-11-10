@@ -8,6 +8,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/target/**",
       "apps/desktop/ui/generated/**",
+      "test-results/**",
     ],
   },
   eslint.configs.recommended,

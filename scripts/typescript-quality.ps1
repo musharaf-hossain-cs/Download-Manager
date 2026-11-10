@@ -39,6 +39,7 @@ Invoke-Checked 'TypeScript build' { pnpm build }
 Invoke-Checked 'TypeScript typecheck' { pnpm typecheck }
 Invoke-Checked 'Vitest' { pnpm test }
 Invoke-Checked 'Private-use installer contract' { pnpm test:private-use-installer-contract }
+Invoke-Checked 'Private-use acceptance fixture' { pnpm test:private-use-acceptance-fixture }
 
 Write-Host 'TypeScript quality gates passed.'
 

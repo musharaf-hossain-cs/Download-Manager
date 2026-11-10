@@ -25,6 +25,15 @@ state and completed downloads:
 pwsh -NoProfile -File scripts/test-private-use-installer.ps1
 ```
 
+PU09's deterministic loopback fixture server supports the final installed-laptop acceptance run:
+
+```powershell
+node scripts/private-use-acceptance-fixture.mjs --port 49321
+```
+
+The completed private milestone evidence is recorded in
+`docs/evidence/s202-private-use-acceptance.json`.
+
 The development hook builds the current-user backend beside the desktop executable. The shell
 connects to an already-running healthy backend when available and otherwise starts it. Closing the
 window releases the desktop connection without shutting down backend-owned downloads.

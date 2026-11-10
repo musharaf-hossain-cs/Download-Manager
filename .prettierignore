@@ -3,6 +3,7 @@ pnpm-lock.yaml
 target
 dist
 node_modules
+test-results
 **/src-tauri/gen
 apps/desktop/ui/generated
 

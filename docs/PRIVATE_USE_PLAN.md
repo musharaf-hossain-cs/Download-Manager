@@ -255,13 +255,14 @@ Definition of done:
 
 ### Completion record
 
-Phase D maps PU08 to repository completion slice S201. The private installer is an unsigned Tauri
-NSIS bundle for the native Windows x64 host; PU09 remains the independent installed-laptop
-acceptance gate.
+Phase D maps PU08–PU09 to repository completion slices S201–S202. The private installer is an
+unsigned Tauri NSIS bundle for the native Windows x64 host, and the independent installed-laptop
+acceptance gate has passed on the target Windows 10 build.
 
 | Segment | Slice | Status | Evidence |
 | ------- | ----- | ------ | -------- |
 | PU08 | S201 | Complete | `pwsh -NoProfile -File scripts/test-private-use-installer.ps1` builds the versioned Windows x64 NSIS artifact and SHA-256 record, performs a clean current-user install beneath `%LOCALAPPDATA%\Programs\Download Manager`, verifies the GUI Start Menu target plus installed GUI/backend/diagnostic-CLI process paths, reaches authenticated backend health from an isolated runtime profile, cleanly shuts down and uninstalls, retains application-state and completed-download sentinels, excludes the browser native host and FFmpeg, and rejects a truncated installer before installation. The static packaging contract also verifies forced NSIS CRC checks, current-user scope, embedded migrations, and bounded optional state cleanup. |
+| PU09 | S202 | Complete | `docs/evidence/s202-private-use-acceptance.json` records the non-admin clean release install, Start Menu launch, installed GUI URL/progress and exact open/reveal actions, known/unknown-length hashes, pause/close/relaunch/reboot/resume recovery, cancellation, changed-remote refusal without partial mutation, conservative uninstall, retained completed downloads, restored pre-run state, installer SHA-256, tool/OS versions, and no observed Defender/SmartScreen warning. The initial fast-gate timing race is resolved as bounded continuation PU09-C1, and the final fast gate passes. |
 
 ### PU08 — Build the private per-user Windows installer
 

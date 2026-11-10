@@ -496,23 +496,32 @@ mod tests {
         let partial = directory.path().join("file.part");
         fs::write(&partial, b"hello").expect("partial");
         let control = TransferControl::default();
-        let pause_control = control.clone();
-        let pause_worker = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(200));
-            pause_control.request_pause();
+        let resume_control = control.clone();
+        let resume_url = HttpUrl::parse(server.url("/file")).expect("URL");
+        let resume_partial = partial.clone();
+        let resume_worker = thread::spawn(move || {
+            resume_single_stream_with_control(
+                &resume_url,
+                &resume_partial,
+                5,
+                &identity("\"v1\"", total),
+                &resume_control,
+                |_| {},
+            )
+            .expect("pause stalled resume")
         });
 
-        let started = Instant::now();
-        let status = resume_single_stream_with_control(
-            &HttpUrl::parse(server.url("/file")).expect("URL"),
-            &partial,
-            5,
-            &identity("\"v1\"", total),
-            &control,
-            |_| {},
-        )
-        .expect("pause stalled resume");
-        pause_worker.join().expect("pause worker");
+        let request_deadline = Instant::now() + Duration::from_secs(2);
+        while server.requests().len() < 2 {
+            assert!(
+                Instant::now() < request_deadline,
+                "the ranged GET was not issued before the fixture deadline"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        let pause_started = Instant::now();
+        control.request_pause();
+        let status = resume_worker.join().expect("resume worker");
 
         assert!(matches!(
             status,
@@ -522,7 +531,7 @@ mod tests {
             }
         ));
         assert!(
-            started.elapsed() < Duration::from_millis(900),
+            pause_started.elapsed() < Duration::from_millis(900),
             "pause should not wait for the stalled response body"
         );
         assert_eq!(fs::read(&partial).expect("unchanged partial"), b"hello");
