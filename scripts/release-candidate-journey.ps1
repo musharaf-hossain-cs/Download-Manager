@@ -93,7 +93,7 @@ try {
         }
         evidence_boundaries = @(
             'No installed browser capture is exercised.',
-            'The production native host AddDownload path remains not_ready.',
+            'The production native host AddDownload path uses authenticated current-user backend IPC; installed-browser execution remains outside this composed gate.',
             'No packaged Windows update activation adapter is exercised.',
             'This is not a Windows 10/11 supported-OS clean-VM matrix claim.',
             'S180 requirement blockers and v1 release-readiness gates remain unchanged.'

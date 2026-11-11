@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{AddRequest, BackendError, CliBackend, JobView, QueueStart};
+use crate::{AddRequest, BackendError, BrowserDownloadRequest, CliBackend, JobView, QueueStart};
 
 const IPC_PROTOCOL_VERSION: u16 = 1;
 const MAX_IPC_MESSAGE_BYTES: usize = 1_048_576;
@@ -81,6 +81,9 @@ enum RequestPayload {
         filename: Option<String>,
         start_now: bool,
         queue: Option<String>,
+    },
+    BrowserAdd {
+        request: BrowserDownloadRequest,
     },
     List,
     Status {
@@ -232,6 +235,20 @@ impl AuthenticatedIpcBackend {
         }
     }
 
+    /// Forwards one browser download to the authenticated backend authority.
+    ///
+    /// # Errors
+    /// Returns a typed backend rejection or transport failure.
+    pub fn add_browser(
+        &mut self,
+        request: BrowserDownloadRequest,
+    ) -> Result<JobView, BackendError> {
+        match self.exchange(RequestPayload::BrowserAdd { request })? {
+            ResponsePayload::Job { job } => Ok(job),
+            _ => Err(unexpected_response()),
+        }
+    }
+
     fn exchange(&self, payload: RequestPayload) -> Result<ResponsePayload, BackendError> {
         self.exchange_transport(payload)
             .map_err(|error| BackendError::Transport(error.to_string()))?
@@ -289,6 +306,10 @@ impl CliBackend for AuthenticatedIpcBackend {
             ResponsePayload::Job { job } => Ok(job),
             _ => Err(unexpected_response()),
         }
+    }
+
+    fn add_browser(&mut self, request: BrowserDownloadRequest) -> Result<JobView, BackendError> {
+        AuthenticatedIpcBackend::add_browser(self, request)
     }
 
     fn list(&mut self) -> Result<Vec<JobView>, BackendError> {
@@ -502,6 +523,9 @@ fn dispatch<B: CliBackend + ?Sized>(
                 queue,
             })
             .map(|job| ResponsePayload::Job { job }),
+        RequestPayload::BrowserAdd { request } => backend
+            .add_browser(request)
+            .map(|job| ResponsePayload::Job { job }),
         RequestPayload::List => backend.list().map(|jobs| ResponsePayload::Jobs { jobs }),
         RequestPayload::Status { job_id } => backend
             .status(job_id)
@@ -624,7 +648,7 @@ mod tests {
     use std::{fs, net::SocketAddr, thread, time::Duration};
 
     use download_manager_engine::{
-        domain::{JobId, RequestId},
+        domain::{HttpUrl, JobId, RequestId},
         ipc::{Envelope, UI_PROTOCOL_VERSION, UiMessage, UiRequest, UiResponse},
         state::DownloadState,
     };
@@ -633,7 +657,9 @@ mod tests {
         AuthenticatedIpcBackend, EndpointManifest, IPC_PROTOCOL_VERSION, LocalIpcError,
         LocalIpcServer, MANIFEST_FILE, USER_SCOPE,
     };
-    use crate::{AddRequest, BackendError, CliBackend, JobView, QueueStart};
+    use crate::{
+        AddRequest, BackendError, BrowserDownloadRequest, CliBackend, JobView, QueueStart,
+    };
 
     struct FixtureBackend {
         jobs: Vec<JobView>,
@@ -643,6 +669,14 @@ mod tests {
 
     impl CliBackend for FixtureBackend {
         fn add(&mut self, _request: AddRequest) -> Result<JobView, BackendError> {
+            self.calls += 1;
+            Ok(self.jobs[0].clone())
+        }
+
+        fn add_browser(
+            &mut self,
+            _request: BrowserDownloadRequest,
+        ) -> Result<JobView, BackendError> {
             self.calls += 1;
             Ok(self.jobs[0].clone())
         }
@@ -730,6 +764,39 @@ mod tests {
         });
 
         assert_eq!(client.list().expect("list jobs"), vec![expected]);
+        assert_eq!(server_thread.join().expect("server thread"), 1);
+        fs::remove_dir_all(directory).expect("cleanup");
+    }
+
+    #[test]
+    fn authenticated_browser_request_returns_one_backend_job() {
+        let directory = directory();
+        let token = "6".repeat(64);
+        let server = LocalIpcServer::bind_with_token(&directory, token.clone()).expect("bind");
+        let mut client =
+            AuthenticatedIpcBackend::discover_with_token(&directory, token).expect("discover");
+        let expected = job();
+        let server_expected = expected.clone();
+        let request_id = RequestId::new();
+        let server_thread = thread::spawn(move || {
+            let mut backend = FixtureBackend {
+                jobs: vec![server_expected],
+                calls: 0,
+                list_delay: Duration::ZERO,
+            };
+            server.serve_once(&mut backend).expect("serve request");
+            backend.calls
+        });
+
+        let accepted = client
+            .add_browser(BrowserDownloadRequest {
+                request_id,
+                source_url: HttpUrl::parse("https://example.test/archive.zip").expect("URL"),
+                referrer: Some(HttpUrl::parse("https://example.test/").expect("referrer")),
+                suggested_filename: Some("archive.zip".to_owned()),
+            })
+            .expect("browser add");
+        assert_eq!(accepted, expected);
         assert_eq!(server_thread.join().expect("server thread"), 1);
         fs::remove_dir_all(directory).expect("cleanup");
     }

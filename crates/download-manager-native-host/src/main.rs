@@ -1,8 +1,10 @@
 use std::{io, path::Path, process::ExitCode};
 
-use download_manager_engine::ipc::{ExtensionEnvelope, ExtensionRequest, ExtensionResponse};
+use download_manager_cli::AuthenticatedIpcBackend;
+use download_manager_engine::ipc::{ExtensionEnvelope, ExtensionResponse};
 use download_manager_native_host::{
-    authorize_firefox_native_request, authorize_native_request, run_native_messaging_session,
+    authorize_firefox_native_request, authorize_native_request, backend_unavailable_response,
+    forward_extension_request, run_native_messaging_session,
 };
 
 const DEVELOPMENT_EXTENSION_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
@@ -84,15 +86,17 @@ fn run_authenticated_session(
                 message: error.to_string(),
             };
         }
-        if matches!(&request.payload, ExtensionRequest::Health) {
-            ExtensionResponse::Healthy {
+        if matches!(
+            &request.payload,
+            download_manager_engine::ipc::ExtensionRequest::Health
+        ) {
+            return ExtensionResponse::Healthy {
                 host_version: download_manager_engine::VERSION.to_owned(),
-            }
-        } else {
-            ExtensionResponse::Rejected {
-                code: "not_ready".to_owned(),
-                message: "native request handling is not available yet".to_owned(),
-            }
+            };
+        }
+        match AuthenticatedIpcBackend::discover_current_user() {
+            Ok(mut backend) => forward_extension_request(request, &mut backend),
+            Err(error) => backend_unavailable_response(&error),
         }
     }) {
         Ok(()) => ExitCode::SUCCESS,

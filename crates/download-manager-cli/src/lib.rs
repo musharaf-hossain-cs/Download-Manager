@@ -3,7 +3,7 @@
 use std::{ffi::OsString, fmt::Write as _, io::Write, path::PathBuf, str::FromStr, time::Duration};
 
 use download_manager_engine::{
-    domain::{HttpUrl, JobId},
+    domain::{HttpUrl, JobId, RequestId},
     ipc::{Envelope, JobAction, UiMessage, UiRequest},
     state::DownloadState,
 };
@@ -64,6 +64,18 @@ pub struct AddRequest {
     pub filename: Option<String>,
     pub start_now: bool,
     pub queue: Option<String>,
+}
+
+/// One browser-originated download forwarded over authenticated current-user IPC.
+///
+/// The request ID is also the durable idempotency key. The backend, rather than
+/// the native host, owns destination selection and final download validation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserDownloadRequest {
+    pub request_id: RequestId,
+    pub source_url: HttpUrl,
+    pub referrer: Option<HttpUrl>,
+    pub suggested_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +145,18 @@ pub trait CliBackend {
     /// # Errors
     /// Returns a typed engine rejection or transport failure.
     fn add(&mut self, request: AddRequest) -> Result<JobView, BackendError>;
+
+    /// Adds one browser-originated request using the backend's current-user
+    /// destination policy and durable request-ID idempotency.
+    ///
+    /// # Errors
+    /// Returns a typed policy rejection or transport failure.
+    fn add_browser(&mut self, _request: BrowserDownloadRequest) -> Result<JobView, BackendError> {
+        Err(BackendError::Rejected {
+            code: "browser_protocol_unavailable".to_owned(),
+            message: "the browser download protocol is unavailable on this backend".to_owned(),
+        })
+    }
 
     /// Lists the engine's durable jobs.
     ///

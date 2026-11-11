@@ -50,6 +50,10 @@ assert.equal(
 assert.match(workflow, /runs-on:\s*windows-latest/u);
 assert.match(workflow, /pnpm test:release-candidate/u);
 assert.match(workflow, /actions\/upload-artifact@/u);
+assert.match(
+  runner,
+  /native host AddDownload path uses authenticated current-user backend IPC/u,
+);
 
 assert.equal(evidence.status, "passed");
 assert.deepEqual(

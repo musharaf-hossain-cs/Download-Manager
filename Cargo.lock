@@ -866,6 +866,7 @@ dependencies = [
 name = "download-manager-native-host"
 version = "0.1.0"
 dependencies = [
+ "download-manager-cli",
  "download-manager-engine",
  "proptest",
  "reqwest 0.12.28",

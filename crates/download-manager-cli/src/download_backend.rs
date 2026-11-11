@@ -33,11 +33,20 @@ use download_manager_engine::{
         SingleStreamDownloader, TransferControl, TransferOutcome, TransferProgress, TransferStatus,
     },
 };
+use serde::Deserialize;
 
-use crate::{AddRequest, BackendError, CliBackend, JobView, QueueStart};
+use crate::{AddRequest, BackendError, BrowserDownloadRequest, CliBackend, JobView, QueueStart};
 
 const MAX_FAILURE_REASON_CHARS: usize = 4_096;
 const DATABASE_FILE: &str = "downloads.sqlite3";
+const PREFERENCES_FILE: &str = "preferences.json";
+const BROWSER_SOURCE: &str = "browser_extension";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserPreferences {
+    last_download_directory: Option<PathBuf>,
+}
 
 /// SQLite-backed current-user authority with one FIFO HTTP(S) transfer worker.
 pub struct DownloadBackend {
@@ -48,6 +57,7 @@ pub struct DownloadBackend {
     progress: Arc<Mutex<HashMap<JobId, TransferProgress>>>,
     shutting_down: Arc<AtomicBool>,
     partial_directory: PathBuf,
+    browser_download_directory: Result<PathBuf, String>,
 }
 
 impl DownloadBackend {
@@ -62,10 +72,12 @@ impl DownloadBackend {
                 "LOCALAPPDATA is required for private download state",
             )
         })?;
-        let state = PathBuf::from(local_app_data)
-            .join("DownloadManager")
-            .join("State");
-        Self::new_with_database(state.join(DATABASE_FILE), state.join("partials"))
+        let root = PathBuf::from(local_app_data).join("DownloadManager");
+        let state = root.join("State");
+        let mut backend =
+            Self::new_with_database(state.join(DATABASE_FILE), state.join("partials"))?;
+        backend.browser_download_directory = current_user_browser_download_directory(&root);
+        Ok(backend)
     }
 
     /// Opens an isolated backend, storing its database beside the partial directory.
@@ -129,7 +141,106 @@ impl DownloadBackend {
             progress,
             shutting_down,
             partial_directory,
+            browser_download_directory: Err(
+                "browser download destination is not configured".to_owned()
+            ),
         })
+    }
+
+    /// Configures the destination used by browser-originated downloads.
+    pub fn set_browser_download_directory(&mut self, directory: PathBuf) {
+        self.browser_download_directory = Ok(directory);
+    }
+
+    fn add_with_identity(
+        &mut self,
+        request: AddRequest,
+        job_id: JobId,
+        source_browser: Option<String>,
+        accept_durable_queue_failure: bool,
+    ) -> Result<JobView, BackendError> {
+        if !request.start_now {
+            return Err(rejected(
+                "unsupported_in_pu04",
+                "adding a download for later is outside the private PU04 path",
+            ));
+        }
+        if request.queue.is_some() {
+            return Err(rejected(
+                "unsupported_in_pu04",
+                "download queues are outside the private-use milestone",
+            ));
+        }
+        validate_output_directory(&request.output_directory)?;
+
+        let probe = HttpProbe::new()
+            .and_then(|client| client.probe(&request.source_url))
+            .map_err(|error| rejected("probe_failed", error.to_string()))?;
+        if !(200..300).contains(&probe.status) || probe.authentication_challenge.is_some() {
+            return Err(rejected(
+                "probe_failed",
+                format!("HTTP probe returned status {}", probe.status),
+            ));
+        }
+        let selected_filename = request.filename.unwrap_or_else(|| {
+            select_filename(
+                probe.content_disposition.as_deref(),
+                &probe.final_url,
+                probe.identity.mime_type.as_deref(),
+            )
+        });
+        let filename = sanitize_windows_filename(&selected_filename);
+        let created_at = now();
+        let metadata = JobMetadata {
+            id: job_id,
+            display_url: probe.final_url.as_str().to_owned(),
+            source_url: request.source_url,
+            final_url: Some(probe.final_url),
+            filename,
+            destination: request.output_directory,
+            state: DownloadState::Queued,
+            kind: DownloadKind::File,
+            total_bytes: probe.identity.content_length,
+            downloaded_bytes: 0,
+            category: None,
+            queue: None,
+            priority: Priority::Normal,
+            source_browser,
+            source_profile: None,
+            retry_count: 0,
+            error: None,
+            created_at,
+            updated_at: created_at,
+            completed_at: None,
+        };
+        let segment = single_segment(job_id, &probe.identity, created_at);
+        let partial = partial_path(&self.partial_directory, job_id);
+        fs::write(&partial, []).map_err(|error| {
+            BackendError::Transport(format!("could not create private partial: {error}"))
+        })?;
+        let segments = segment.as_slice();
+        if let Err(error) = with_database(&self.database, |database| {
+            database.create_job_with_segments(&metadata, Some(&probe.identity), segments)
+        }) {
+            let _ = fs::remove_file(&partial);
+            return Err(BackendError::Transport(error));
+        }
+
+        let job = job_view(&metadata);
+        if let Err(error) = send_work(
+            self.work.as_ref(),
+            DownloadWork {
+                job_id,
+                mode: TransferMode::Initial,
+            },
+        ) {
+            pause_after_queue_failure(&self.database, job_id, &error);
+            if accept_durable_queue_failure {
+                return self.status(job_id);
+            }
+            return Err(BackendError::Transport(error));
+        }
+        Ok(job)
     }
 
     fn pause(&self, job_id: JobId) -> Result<(), BackendError> {
@@ -262,86 +373,44 @@ impl DownloadBackend {
 
 impl CliBackend for DownloadBackend {
     fn add(&mut self, request: AddRequest) -> Result<JobView, BackendError> {
-        if !request.start_now {
-            return Err(rejected(
-                "unsupported_in_pu04",
-                "adding a download for later is outside the private PU04 path",
-            ));
-        }
-        if request.queue.is_some() {
-            return Err(rejected(
-                "unsupported_in_pu04",
-                "download queues are outside the private-use milestone",
-            ));
-        }
-        validate_output_directory(&request.output_directory)?;
+        self.add_with_identity(request, JobId::new(), None, false)
+    }
 
-        let probe = HttpProbe::new()
-            .and_then(|client| client.probe(&request.source_url))
-            .map_err(|error| rejected("probe_failed", error.to_string()))?;
-        if !(200..300).contains(&probe.status) || probe.authentication_challenge.is_some() {
-            return Err(rejected(
-                "probe_failed",
-                format!("HTTP probe returned status {}", probe.status),
-            ));
-        }
-        let selected_filename = request.filename.unwrap_or_else(|| {
-            select_filename(
-                probe.content_disposition.as_deref(),
-                &probe.final_url,
-                probe.identity.mime_type.as_deref(),
-            )
-        });
-        let filename = sanitize_windows_filename(&selected_filename);
-        let job_id = JobId::new();
-        let created_at = now();
-        let metadata = JobMetadata {
-            id: job_id,
-            display_url: probe.final_url.as_str().to_owned(),
-            source_url: request.source_url,
-            final_url: Some(probe.final_url),
-            filename,
-            destination: request.output_directory,
-            state: DownloadState::Queued,
-            kind: DownloadKind::File,
-            total_bytes: probe.identity.content_length,
-            downloaded_bytes: 0,
-            category: None,
-            queue: None,
-            priority: Priority::Normal,
-            source_browser: None,
-            source_profile: None,
-            retry_count: 0,
-            error: None,
-            created_at,
-            updated_at: created_at,
-            completed_at: None,
-        };
-        let segment = single_segment(job_id, &probe.identity, created_at);
-        let partial = partial_path(&self.partial_directory, job_id);
-        fs::write(&partial, []).map_err(|error| {
-            BackendError::Transport(format!("could not create private partial: {error}"))
-        })?;
-        let segments = segment.as_slice();
-        if let Err(error) = with_database(&self.database, |database| {
-            database.create_job_with_segments(&metadata, Some(&probe.identity), segments)
-        }) {
-            let _ = fs::remove_file(&partial);
-            return Err(BackendError::Transport(error));
+    fn add_browser(&mut self, request: BrowserDownloadRequest) -> Result<JobView, BackendError> {
+        let job_id = JobId::from_uuid(request.request_id.as_uuid());
+        match load_job(&self.database, job_id) {
+            Ok(record) => {
+                if record.metadata.source_browser.as_deref() == Some(BROWSER_SOURCE)
+                    && record.metadata.source_url == request.source_url
+                {
+                    return Ok(job_view(&record.metadata));
+                }
+                return Err(rejected(
+                    "duplicate_request",
+                    "the browser request ID is already bound to another durable job",
+                ));
+            }
+            Err(BackendError::NotFound(_)) => {}
+            Err(error) => return Err(error),
         }
 
-        let job = job_view(&metadata);
-        if let Err(error) = send_work(
-            self.work.as_ref(),
-            DownloadWork {
-                job_id,
-                mode: TransferMode::Initial,
+        let output_directory = self
+            .browser_download_directory
+            .as_ref()
+            .map_err(|message| rejected("destination_unavailable", message.clone()))?
+            .clone();
+        self.add_with_identity(
+            AddRequest {
+                source_url: request.source_url,
+                output_directory,
+                filename: request.suggested_filename,
+                start_now: true,
+                queue: None,
             },
-        ) {
-            pause_after_queue_failure(&self.database, job_id, &error);
-            return Err(BackendError::Transport(error));
-        }
-        Ok(job)
+            job_id,
+            Some(BROWSER_SOURCE.to_owned()),
+            true,
+        )
     }
 
     fn list(&mut self) -> Result<Vec<JobView>, BackendError> {
@@ -966,6 +1035,36 @@ fn partial_path(directory: &Path, job_id: JobId) -> PathBuf {
     directory.join(format!("{job_id}.part"))
 }
 
+fn current_user_browser_download_directory(root: &Path) -> Result<PathBuf, String> {
+    let preferences_path = root.join(PREFERENCES_FILE);
+    match fs::read(&preferences_path) {
+        Ok(bytes) => {
+            if bytes.len() > 16_384 {
+                return Err("desktop preferences exceed the browser policy limit".to_owned());
+            }
+            let preferences: BrowserPreferences = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("desktop preferences are invalid: {error}"))?;
+            if let Some(directory) = preferences.last_download_directory {
+                if directory.is_absolute() {
+                    return Ok(directory);
+                }
+                return Err("saved browser download destination is not absolute".to_owned());
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!("desktop preferences could not be read: {error}"));
+        }
+    }
+
+    let user_profile = env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            "USERPROFILE is unavailable for the browser download destination".to_owned()
+        })?;
+    Ok(user_profile.join("Downloads"))
+}
+
 fn validate_output_directory(directory: &Path) -> Result<(), BackendError> {
     let metadata = fs::metadata(directory).map_err(|error| {
         rejected(
@@ -1123,7 +1222,7 @@ mod tests {
         state::DownloadState,
     };
 
-    use crate::CliBackend;
+    use crate::{BrowserDownloadRequest, CliBackend};
 
     use super::DownloadBackend;
 
@@ -1309,6 +1408,82 @@ mod tests {
             assert!(Instant::now() < deadline, "download did not complete");
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[test]
+    fn browser_request_id_creates_one_real_durable_job_across_retries() {
+        let body = b"PU10 browser handoff fixture".repeat(1_024);
+        let server = HttpFixture::start(body.clone());
+        let root = temp_directory();
+        let destination = root.join("downloads");
+        std::fs::create_dir(&destination).expect("download directory");
+        let mut backend = DownloadBackend::new(root.join("partials")).expect("backend");
+        backend.set_browser_download_directory(destination.clone());
+        let request_id = RequestId::new();
+        let request = BrowserDownloadRequest {
+            request_id,
+            source_url: HttpUrl::parse(server.url()).expect("fixture URL"),
+            referrer: Some(HttpUrl::parse("https://example.test/page").expect("referrer")),
+            suggested_filename: Some("captured.bin".to_owned()),
+        };
+
+        let first = backend
+            .add_browser(request.clone())
+            .expect("first browser request");
+        let duplicate = backend
+            .add_browser(request.clone())
+            .expect("idempotent retry");
+        assert_eq!(first.id, JobId::from_uuid(request_id.as_uuid()));
+        assert_eq!(duplicate.id, first.id);
+        assert_eq!(backend.list().expect("durable jobs").len(), 1);
+
+        let completed = wait_for_desktop_completion(&mut backend, first.id);
+        assert_eq!(
+            completed.source_browser.as_deref(),
+            Some("browser_extension")
+        );
+        assert_eq!(completed.destination, destination);
+        assert_eq!(
+            std::fs::read(destination.join("captured.bin")).expect("completed browser file"),
+            body
+        );
+        assert!(server.requests.load(Ordering::Relaxed) >= 2);
+        drop(backend);
+
+        let mut reopened = DownloadBackend::new(root.join("partials")).expect("reopen backend");
+        reopened.set_browser_download_directory(destination.clone());
+        let after_restart = reopened
+            .add_browser(request)
+            .expect("idempotent retry after backend restart");
+        assert_eq!(after_restart.id, first.id);
+        assert_eq!(reopened.list().expect("reopened durable jobs").len(), 1);
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn browser_destination_rejection_creates_no_job() {
+        let server = HttpFixture::start(b"unused".to_vec());
+        let root = temp_directory();
+        let mut backend = DownloadBackend::new(root.join("partials")).expect("backend");
+        backend.set_browser_download_directory(root.join("missing"));
+
+        let error = backend
+            .add_browser(BrowserDownloadRequest {
+                request_id: RequestId::new(),
+                source_url: HttpUrl::parse(server.url()).expect("fixture URL"),
+                referrer: None,
+                suggested_filename: None,
+            })
+            .expect_err("missing destination must be rejected");
+        assert!(matches!(
+            error,
+            crate::BackendError::Rejected { code, .. } if code == "destination_unavailable"
+        ));
+        assert_eq!(backend.list().expect("durable jobs"), Vec::new());
+        assert_eq!(server.requests.load(Ordering::Relaxed), 0);
+        drop(backend);
+        std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]

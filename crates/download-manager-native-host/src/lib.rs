@@ -6,9 +6,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use download_manager_cli::{BackendError, BrowserDownloadRequest, CliBackend, LocalIpcError};
 use download_manager_engine::ipc::{
-    EXTENSION_PROTOCOL_VERSION, ExtensionEnvelope, ExtensionResponse, MAX_EXTENSION_MESSAGE_BYTES,
-    RequestIdTracker, decode_extension_request,
+    EXTENSION_PROTOCOL_VERSION, ExtensionEnvelope, ExtensionRequest, ExtensionResponse,
+    MAX_EXTENSION_MESSAGE_BYTES, RequestIdTracker, decode_extension_request,
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,65 @@ struct ResponseEnvelope {
     version: u16,
     request_id: download_manager_engine::domain::RequestId,
     payload: ExtensionResponse,
+}
+
+/// Forwards one decoded browser request to an authenticated backend client.
+///
+/// Health remains local to the native host. A single-download request is
+/// acknowledged only after the backend returns the ID of its durable job.
+/// Batch submission is deliberately outside PU10.
+pub fn forward_extension_request(
+    request: &ExtensionEnvelope,
+    backend: &mut impl CliBackend,
+) -> ExtensionResponse {
+    match &request.payload {
+        ExtensionRequest::Health => ExtensionResponse::Healthy {
+            host_version: download_manager_engine::VERSION.to_owned(),
+        },
+        ExtensionRequest::AddDownload {
+            url,
+            referrer,
+            suggested_filename,
+        } => match backend.add_browser(BrowserDownloadRequest {
+            request_id: request.request_id,
+            source_url: url.clone(),
+            referrer: referrer.clone(),
+            suggested_filename: suggested_filename.clone(),
+        }) {
+            Ok(job) => ExtensionResponse::Accepted {
+                job_ids: vec![job.id],
+            },
+            Err(error) => backend_error_response(error),
+        },
+        ExtensionRequest::AddBatch { .. } => ExtensionResponse::Rejected {
+            code: "unsupported_request".to_owned(),
+            message: "batch browser downloads are outside private-use PU10".to_owned(),
+        },
+    }
+}
+
+/// Maps backend discovery failure to a typed native response so the browser
+/// retains its original download as fallback.
+#[must_use]
+pub fn backend_unavailable_response(error: &LocalIpcError) -> ExtensionResponse {
+    ExtensionResponse::Rejected {
+        code: "backend_offline".to_owned(),
+        message: error.to_string(),
+    }
+}
+
+fn backend_error_response(error: BackendError) -> ExtensionResponse {
+    match error {
+        BackendError::Rejected { code, message } => ExtensionResponse::Rejected { code, message },
+        BackendError::NotFound(message) => ExtensionResponse::Rejected {
+            code: "backend_rejected".to_owned(),
+            message,
+        },
+        BackendError::Transport(message) => ExtensionResponse::Rejected {
+            code: "backend_offline".to_owned(),
+            message,
+        },
+    }
 }
 
 /// Authorizes a decoded request against the browser-authenticated launch
@@ -236,16 +296,21 @@ mod tests {
         rc::Rc,
     };
 
+    use download_manager_cli::{
+        AddRequest, BackendError, BrowserDownloadRequest, CliBackend, JobView, QueueStart,
+    };
     use download_manager_engine::{
-        domain::RequestId,
+        domain::{HttpUrl, JobId, RequestId},
         ipc::{
             EXTENSION_PROTOCOL_VERSION, ExtensionEnvelope, ExtensionRequest, ExtensionResponse,
-            MAX_EXTENSION_MESSAGE_BYTES,
+            JobAction, MAX_EXTENSION_MESSAGE_BYTES,
         },
+        state::DownloadState,
     };
 
     use super::{
-        authorize_firefox_native_request, authorize_native_request, run_native_messaging_session,
+        authorize_firefox_native_request, authorize_native_request, backend_unavailable_response,
+        forward_extension_request, run_native_messaging_session,
     };
 
     const PACKAGED_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
@@ -264,6 +329,43 @@ mod tests {
     }
 
     struct BrokenPipeWriter;
+
+    struct FixtureBackend {
+        response: Option<Result<JobView, BackendError>>,
+        calls: usize,
+        forwarded: Option<BrowserDownloadRequest>,
+    }
+
+    impl CliBackend for FixtureBackend {
+        fn add(&mut self, _request: AddRequest) -> Result<JobView, BackendError> {
+            unreachable!("native forwarding must use the browser-specific backend command")
+        }
+
+        fn add_browser(
+            &mut self,
+            request: BrowserDownloadRequest,
+        ) -> Result<JobView, BackendError> {
+            self.calls += 1;
+            self.forwarded = Some(request);
+            self.response.take().expect("one configured response")
+        }
+
+        fn list(&mut self) -> Result<Vec<JobView>, BackendError> {
+            unreachable!("not used by native forwarding")
+        }
+
+        fn status(&mut self, _job_id: JobId) -> Result<JobView, BackendError> {
+            unreachable!("not used by native forwarding")
+        }
+
+        fn control(&mut self, _job_id: JobId, _action: JobAction) -> Result<JobView, BackendError> {
+            unreachable!("not used by native forwarding")
+        }
+
+        fn start_queue(&mut self, _name: &str) -> Result<QueueStart, BackendError> {
+            unreachable!("not used by native forwarding")
+        }
+    }
 
     impl Write for BrokenPipeWriter {
         fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
@@ -317,6 +419,147 @@ mod tests {
         assert_eq!(value["version"], EXTENSION_PROTOCOL_VERSION);
         assert_eq!(value["request_id"], request_id.to_string());
         assert_eq!(value["payload"]["type"], "healthy");
+    }
+
+    #[test]
+    fn add_download_is_forwarded_once_and_acknowledges_exactly_one_job() {
+        let request_id = RequestId::new();
+        let job_id = JobId::new();
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id,
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::AddDownload {
+                url: HttpUrl::parse("https://example.test/archive.zip").expect("URL"),
+                referrer: Some(HttpUrl::parse("https://example.test/page").expect("referrer")),
+                suggested_filename: Some("archive.zip".to_owned()),
+            },
+        };
+        let mut backend = FixtureBackend {
+            response: Some(Ok(JobView {
+                id: job_id,
+                state: DownloadState::Queued,
+                filename: "archive.zip".to_owned(),
+                downloaded_bytes: 0,
+                total_bytes: Some(42),
+                failure_reason: None,
+            })),
+            calls: 0,
+            forwarded: None,
+        };
+
+        assert_eq!(
+            forward_extension_request(&request, &mut backend),
+            ExtensionResponse::Accepted {
+                job_ids: vec![job_id]
+            }
+        );
+        assert_eq!(backend.calls, 1);
+        let forwarded = backend.forwarded.expect("forwarded request");
+        assert_eq!(forwarded.request_id, request_id);
+        assert_eq!(
+            forwarded.source_url.as_str(),
+            "https://example.test/archive.zip"
+        );
+        assert_eq!(forwarded.suggested_filename.as_deref(), Some("archive.zip"));
+    }
+
+    #[test]
+    fn backend_rejection_preserves_browser_fallback() {
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::AddDownload {
+                url: HttpUrl::parse("https://example.test/rejected").expect("URL"),
+                referrer: None,
+                suggested_filename: None,
+            },
+        };
+        let mut backend = FixtureBackend {
+            response: Some(Err(BackendError::Rejected {
+                code: "probe_failed".to_owned(),
+                message: "fixture rejection".to_owned(),
+            })),
+            calls: 0,
+            forwarded: None,
+        };
+
+        assert!(matches!(
+            forward_extension_request(&request, &mut backend),
+            ExtensionResponse::Rejected { code, message }
+                if code == "probe_failed" && message == "fixture rejection"
+        ));
+        assert_eq!(backend.calls, 1);
+    }
+
+    #[test]
+    fn health_is_local_and_offline_backend_is_a_typed_rejection() {
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::Health,
+        };
+        let mut backend = FixtureBackend {
+            response: None,
+            calls: 0,
+            forwarded: None,
+        };
+
+        assert!(matches!(
+            forward_extension_request(&request, &mut backend),
+            ExtensionResponse::Healthy { host_version }
+                if host_version == download_manager_engine::VERSION
+        ));
+        assert_eq!(backend.calls, 0);
+        assert!(matches!(
+            backend_unavailable_response(&download_manager_cli::LocalIpcError::UnsupportedPlatform),
+            ExtensionResponse::Rejected { code, .. } if code == "backend_offline"
+        ));
+    }
+
+    #[test]
+    fn batch_request_is_rejected_without_backend_dispatch() {
+        let request = ExtensionEnvelope {
+            version: EXTENSION_PROTOCOL_VERSION,
+            request_id: RequestId::new(),
+            nonce: "abcdefghijklmnop".to_owned(),
+            extension_id: PACKAGED_ID.to_owned(),
+            payload: ExtensionRequest::AddBatch { items: Vec::new() },
+        };
+        let mut backend = FixtureBackend {
+            response: None,
+            calls: 0,
+            forwarded: None,
+        };
+
+        assert!(matches!(
+            forward_extension_request(&request, &mut backend),
+            ExtensionResponse::Rejected { code, .. } if code == "unsupported_request"
+        ));
+        assert_eq!(backend.calls, 0);
+    }
+
+    #[test]
+    fn duplicate_request_frame_never_reaches_backend_twice() {
+        let frame = framed_request(RequestId::new());
+        let input = [frame.as_slice(), frame.as_slice()].concat();
+        let calls = Rc::new(Cell::new(0));
+        let handler_calls = Rc::clone(&calls);
+        let error = run_native_messaging_session(Cursor::new(input), Vec::new(), move |_| {
+            handler_calls.set(handler_calls.get() + 1);
+            ExtensionResponse::Healthy {
+                host_version: "fixture".to_owned(),
+            }
+        })
+        .expect_err("duplicate request must terminate the session");
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert_eq!(calls.get(), 1);
     }
 
     #[test]

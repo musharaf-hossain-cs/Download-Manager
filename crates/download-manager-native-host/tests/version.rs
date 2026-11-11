@@ -59,6 +59,48 @@ fn authorized_browser_origin_receives_health_response() {
 }
 
 #[test]
+fn authorized_download_with_offline_backend_returns_fallback_rejection() {
+    const EXTENSION_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "download-manager-native-offline-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).expect("isolated current-user root");
+    let body = format!(
+        r#"{{"version":1,"request_id":"018f47ce-8e51-7f31-a1ec-4a97f84a12ce","nonce":"abcdefghijklmnop","extension_id":"{EXTENSION_ID}","payload":{{"type":"add_download","url":"https://example.test/archive.zip","referrer":null,"suggested_filename":"archive.zip"}}}}"#
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_download-manager-native-host"))
+        .arg(format!("chrome-extension://{EXTENSION_ID}/"))
+        .env("LOCALAPPDATA", &root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("native host should start");
+    let mut stdin = child.stdin.take().expect("child stdin");
+    stdin
+        .write_all(
+            &u32::try_from(body.len())
+                .expect("fixture length")
+                .to_le_bytes(),
+        )
+        .expect("write frame length");
+    stdin.write_all(body.as_bytes()).expect("write frame body");
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("native host should exit");
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout[4..]).expect("response JSON");
+    assert_eq!(response["payload"]["type"], "rejected");
+    assert_eq!(response["payload"]["code"], "backend_offline");
+    fs::remove_dir_all(root).expect("remove isolated current-user root");
+}
+
+#[test]
 fn firefox_manifest_and_add_on_id_receive_health_response() {
     const EXTENSION_ID: &str = "download-manager@musharaf-hossain-cs.github.io";
     let executable = Path::new(env!("CARGO_BIN_EXE_download-manager-native-host"));
