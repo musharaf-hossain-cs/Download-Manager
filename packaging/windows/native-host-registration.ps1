@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $hostName = 'io.github.musharaf_hossain_cs.download_manager'
-$chromiumExtensionId = 'abcdefghijklmnopabcdefghijklmnop'
+$chromiumExtensionId = 'ackbonlbpniilcfmmnfdohnhbdbajhii'
 $firefoxExtensionId = 'download-manager@musharaf-hossain-cs.github.io'
 $registryRoot = 'Registry::HKEY_CURRENT_USER\Software'
 

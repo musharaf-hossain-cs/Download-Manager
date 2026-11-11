@@ -30,7 +30,7 @@ import {
 
 const requestId = "018f47ce-8e51-7f31-a1ec-4a97f84a12cd";
 const jobId = "018f47ce-8e51-7f31-a1ec-4a97f84a12ce";
-const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+const extensionId = "ackbonlbpniilcfmmnfdohnhbdbajhii";
 const firefoxExtensionId = "download-manager@musharaf-hossain-cs.github.io";
 const none = Object.freeze({
   altKey: false,

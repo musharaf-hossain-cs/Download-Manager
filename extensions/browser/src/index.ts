@@ -13,6 +13,8 @@ export const extensionIdentity: ExtensionIdentity = Object.freeze({
 });
 
 export * from "./protocol.js";
+export * from "./chromium-identity.js";
+export * from "./chromium-runtime.js";
 export * from "./connection-health.js";
 export * from "./route-diagnostics.js";
 export * from "./link-handoff.js";

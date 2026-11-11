@@ -7,6 +7,7 @@ import {
   SINGLE_LINK_CONTEXT_MENU_ID,
   type SingleLinkMenuClick,
 } from "../src/single-link-context-menu.js";
+import { CHROMIUM_EXTENSION_ID } from "../src/chromium-identity.js";
 
 interface ChromiumManifest {
   readonly action?: { readonly default_title?: string };
@@ -16,6 +17,7 @@ interface ChromiumManifest {
   readonly description?: string;
   readonly host_permissions?: readonly string[];
   readonly incognito?: string;
+  readonly key?: string;
   readonly manifest_version?: number;
   readonly name?: string;
   readonly permissions?: readonly string[];
@@ -45,10 +47,19 @@ describe("Chromium extension manifest", () => {
       name: "Download Manager",
       version: "0.1.0",
       action: { default_title: "Download Manager" },
+      background: {
+        service_worker: "src/service-worker.js",
+        type: "module",
+      },
     });
     expect(manifest.description).toBeTruthy();
     expect(manifest.incognito).toBe("split");
-    expect(manifest.background).toBeUndefined();
+  });
+
+  it("derives the deterministic native-host identity from the public key", async () => {
+    await expect(extensionIdFromKey(manifest.key)).resolves.toBe(
+      CHROMIUM_EXTENSION_ID,
+    );
   });
 
   it("requests only native handoff permissions and no site access", () => {
@@ -56,6 +67,7 @@ describe("Chromium extension manifest", () => {
       "nativeMessaging",
       "downloads",
       "contextMenus",
+      "storage",
     ]);
     expect(manifest.host_permissions).toBeUndefined();
     expect(manifest.content_scripts).toBeUndefined();
@@ -70,6 +82,18 @@ describe("Chromium extension manifest", () => {
   });
 });
 
+async function extensionIdFromKey(key: string | undefined): Promise<string> {
+  if (key === undefined) throw new Error("manifest key missing");
+  const bytes = Uint8Array.from(atob(key), (character) =>
+    character.charCodeAt(0),
+  );
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest.slice(0, 16)]
+    .flatMap((byte) => [byte >>> 4, byte & 0x0f])
+    .map((nibble) => String.fromCharCode("a".charCodeAt(0) + nibble))
+    .join("");
+}
+
 describe("Firefox extension manifest", () => {
   it("keeps the shared extension identity and least-permission contract", () => {
     expect(firefoxManifest).toMatchObject({
@@ -77,7 +101,7 @@ describe("Firefox extension manifest", () => {
       name: manifest.name,
       description: manifest.description,
       version: manifest.version,
-      permissions: manifest.permissions,
+      permissions: ["nativeMessaging", "downloads", "contextMenus"],
       action: manifest.action,
       content_security_policy: manifest.content_security_policy,
       incognito: "spanning",

@@ -313,7 +313,7 @@ mod tests {
         forward_extension_request, run_native_messaging_session,
     };
 
-    const PACKAGED_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+    const PACKAGED_ID: &str = "ackbonlbpniilcfmmnfdohnhbdbajhii";
     const FIREFOX_ID: &str = "download-manager@musharaf-hossain-cs.github.io";
 
     struct ChunkedReader<R> {
@@ -648,12 +648,12 @@ mod tests {
                 "current",
             ),
             (
-                "chrome-extension://abcdefghijklmnopabcdefghijklmnop/path",
+                "chrome-extension://ackbonlbpniilcfmmnfdohnhbdbajhii/path",
                 "current",
                 "current",
             ),
             (
-                "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+                "chrome-extension://ackbonlbpniilcfmmnfdohnhbdbajhii/",
                 "current",
                 "other",
             ),

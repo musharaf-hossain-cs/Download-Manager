@@ -45,7 +45,7 @@ describe("eligible link handoff", () => {
       () => ({
         requestId: "018f47ce-8e51-7f31-a1ec-4a97f84a12cd",
         nonce: "abcdefghijklmnop",
-        extensionId: "abcdefghijklmnopabcdefghijklmnop",
+        extensionId: "ackbonlbpniilcfmmnfdohnhbdbajhii",
       }),
     );
 
@@ -147,7 +147,7 @@ describe("eligible link handoff", () => {
         () => ({
           requestId: "request-1",
           nonce: "abcdefghijklmnop",
-          extensionId: "abcdefghijklmnopabcdefghijklmnop",
+          extensionId: "ackbonlbpniilcfmmnfdohnhbdbajhii",
         }),
       );
       const result = await controller.handoff({
@@ -210,7 +210,7 @@ describe("eligible link handoff", () => {
         () => ({
           requestId: "request-1",
           nonce: "abcdefghijklmnop",
-          extensionId: "abcdefghijklmnopabcdefghijklmnop",
+          extensionId: "ackbonlbpniilcfmmnfdohnhbdbajhii",
         }),
         500,
       );

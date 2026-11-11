@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.json --noEmit",
+    "build": "pnpm build:chromium",
+    "build:chromium": "pnpm prepare:chromium && node scripts/verify-chromium-package.mjs",
     "build:firefox": "pnpm prepare:firefox && web-ext build --source-dir dist/firefox --artifacts-dir web-ext-artifacts --overwrite-dest",
     "lint:firefox": "pnpm prepare:firefox && web-ext lint --source-dir dist/firefox",
+    "prepare:chromium": "node -e \"require('node:fs').rmSync('dist/chromium', { recursive: true, force: true })\" && tsc --project tsconfig.chromium.json && node -e \"require('node:fs').copyFileSync('manifest.json', 'dist/chromium/manifest.json')\"",
     "prepare:firefox": "node -e \"require('node:fs').rmSync('dist/firefox', { recursive: true, force: true })\" && tsc --project tsconfig.firefox.json && node -e \"require('node:fs').copyFileSync('manifest.firefox.json', 'dist/firefox/manifest.json')\"",
     "test": "vitest run",
     "test:browser-regression": "vitest run test/browser-regression.test.mjs",

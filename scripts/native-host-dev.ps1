@@ -29,7 +29,7 @@ if (-not $PSBoundParameters.ContainsKey('ExtensionId')) {
     $ExtensionId = if ($Browser -eq 'Firefox') {
         @('download-manager@musharaf-hossain-cs.github.io')
     } else {
-        @('abcdefghijklmnopabcdefghijklmnop')
+        @('ackbonlbpniilcfmmnfdohnhbdbajhii')
     }
 }
 

@@ -12,7 +12,7 @@ const REFERRER = "https://watch.example.test/show/episode-1";
 const context = {
   requestId: "018f47ce-8e51-7f31-a1ec-4a97f84a12cd",
   nonce: "abcdefghijklmnop",
-  extensionId: "abcdefghijklmnopabcdefghijklmnop",
+  extensionId: "ackbonlbpniilcfmmnfdohnhbdbajhii",
 } as const;
 
 const fixtures = [

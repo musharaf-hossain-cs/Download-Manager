@@ -4,7 +4,7 @@ param([string] $HostPath)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$extensionId = 'abcdefghijklmnopabcdefghijklmnop'
+$extensionId = 'ackbonlbpniilcfmmnfdohnhbdbajhii'
 $origin = "chrome-extension://$extensionId/"
 $firefoxExtensionId = 'download-manager@musharaf-hossain-cs.github.io'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot

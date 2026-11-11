@@ -7,9 +7,9 @@ use download_manager_native_host::{
     forward_extension_request, run_native_messaging_session,
 };
 
-const DEVELOPMENT_EXTENSION_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+const CHROMIUM_EXTENSION_ID: &str = "ackbonlbpniilcfmmnfdohnhbdbajhii";
 const FIREFOX_EXTENSION_ID: &str = "download-manager@musharaf-hossain-cs.github.io";
-const CHROMIUM_EXTENSION_IDS: &[&str] = &[DEVELOPMENT_EXTENSION_ID];
+const CHROMIUM_EXTENSION_IDS: &[&str] = &[CHROMIUM_EXTENSION_ID];
 const FIREFOX_EXTENSION_IDS: &[&str] = &[FIREFOX_EXTENSION_ID];
 
 const HELP: &str =

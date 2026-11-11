@@ -154,7 +154,7 @@ try {
     $chromiumManifest = Get-Content -LiteralPath $chromiumManifestPath -Raw | ConvertFrom-Json
     $firefoxManifest = Get-Content -LiteralPath $firefoxManifestPath -Raw | ConvertFrom-Json
     $hostPath = Join-Path $installRoot 'download-manager-native-host.exe'
-    $chromiumExtensionId = 'abcdefghijklmnopabcdefghijklmnop'
+    $chromiumExtensionId = 'ackbonlbpniilcfmmnfdohnhbdbajhii'
     $firefoxExtensionId = 'download-manager@musharaf-hossain-cs.github.io'
     if ($chromiumManifest.path -ne $hostPath -or
         @($chromiumManifest.allowed_origins).Count -ne 1 -or

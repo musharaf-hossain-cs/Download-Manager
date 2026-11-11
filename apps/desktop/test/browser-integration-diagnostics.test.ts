@@ -10,7 +10,7 @@ import {
 
 const expectations: BrowserIntegrationExpectations = {
   appVersion: "0.1.0",
-  extensionId: "abcdefghijklmnopabcdefghijklmnop",
+  extensionId: "ackbonlbpniilcfmmnfdohnhbdbajhii",
   nativeHostName: "io.github.musharaf_hossain_cs.download_manager",
   protocolVersion: 1,
   browsers: ["chrome", "edge"],
@@ -21,7 +21,7 @@ function healthySnapshot(): BrowserIntegrationSnapshot {
     appVersion: "0.1.0",
     extension: {
       installed: true,
-      id: "abcdefghijklmnopabcdefghijklmnop",
+      id: "ackbonlbpniilcfmmnfdohnhbdbajhii",
       version: "0.1.0",
     },
     nativeHost: {
@@ -29,7 +29,7 @@ function healthySnapshot(): BrowserIntegrationSnapshot {
       manifest: {
         name: "io.github.musharaf_hossain_cs.download_manager",
         executablePath: "C:\\Program Files\\Download Manager\\native-host.exe",
-        allowedExtensionIds: ["abcdefghijklmnopabcdefghijklmnop"],
+        allowedExtensionIds: ["ackbonlbpniilcfmmnfdohnhbdbajhii"],
       },
       executableExists: true,
       reachable: true,

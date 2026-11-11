@@ -23,7 +23,7 @@ fn version_output_is_stable() {
 
 #[test]
 fn authorized_browser_origin_receives_health_response() {
-    const EXTENSION_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+    const EXTENSION_ID: &str = "ackbonlbpniilcfmmnfdohnhbdbajhii";
     let body = format!(
         r#"{{"version":1,"request_id":"018f47ce-8e51-7f31-a1ec-4a97f84a12cd","nonce":"abcdefghijklmnop","extension_id":"{EXTENSION_ID}","payload":{{"type":"health"}}}}"#
     );
@@ -60,7 +60,7 @@ fn authorized_browser_origin_receives_health_response() {
 
 #[test]
 fn authorized_download_with_offline_backend_returns_fallback_rejection() {
-    const EXTENSION_ID: &str = "abcdefghijklmnopabcdefghijklmnop";
+    const EXTENSION_ID: &str = "ackbonlbpniilcfmmnfdohnhbdbajhii";
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time")
