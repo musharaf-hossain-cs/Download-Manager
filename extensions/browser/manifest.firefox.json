@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Download Manager",
   "description": "Send selected downloads to the local Download Manager application.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "incognito": "spanning",
   "permissions": ["nativeMessaging", "downloads", "contextMenus"],
   "action": {

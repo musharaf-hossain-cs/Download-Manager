@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Download Manager",
   "description": "Send selected downloads to the local Download Manager application.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx5ahtQPAUZpxjdpogPW8OStM/wsg6mG/lMM26X8AhmhstOTL8adAOkIbb2/FDhE3w6dN4teST1pALHlmcWYW6BYaI+1047LSpeFIgMo/NYHsUAu0Wc6+hKe2GSXYugVjMe2Tk/PFoHk84O6QATiF/12+d/5eZJPNNStAbDs+WhJ/1cjNKH5Nic5guTS1NiNqedGa9Rlxq6kOCVLC9sYY8IRmy5rNMGMhUKwaAHuye1XI6bPMAKb2NEP+23kinQyaYMHOZHOZQL/SVkaPm2JOothZQ7gpBhlIXy+zXVUOvYxST8rRtVc5m9iZtgvg/gaJgqAN/Qrxhp2x39Z8AmyVkQIDAQAB",
   "incognito": "split",

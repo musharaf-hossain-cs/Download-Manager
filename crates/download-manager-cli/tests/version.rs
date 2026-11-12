@@ -10,7 +10,7 @@ fn version_output_is_stable() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "download-manager-cli 0.1.0\n"
+        "download-manager-cli 1.0.0\n"
     );
     assert_eq!(output.stderr, b"");
 }

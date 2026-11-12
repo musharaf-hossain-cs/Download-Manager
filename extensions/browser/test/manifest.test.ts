@@ -45,7 +45,7 @@ describe("Chromium extension manifest", () => {
     expect(manifest).toMatchObject({
       manifest_version: 3,
       name: "Download Manager",
-      version: "0.1.0",
+      version: "1.0.0",
       action: { default_title: "Download Manager" },
       background: {
         service_worker: "src/service-worker.js",

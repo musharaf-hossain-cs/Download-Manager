@@ -6,7 +6,7 @@ describe("desktop package", () => {
   it("exports its stable bootstrap identity", () => {
     expect(desktopIdentity).toEqual({
       name: "download-manager-desktop",
-      version: "0.1.0",
+      version: "1.0.0",
     });
   });
 });

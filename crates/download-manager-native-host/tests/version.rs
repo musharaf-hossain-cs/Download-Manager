@@ -16,7 +16,7 @@ fn version_output_is_stable() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "download-manager-native-host 0.1.0\n"
+        "download-manager-native-host 1.0.0\n"
     );
     assert_eq!(output.stderr, b"");
 }
@@ -55,7 +55,7 @@ fn authorized_browser_origin_receives_health_response() {
     let response: serde_json::Value =
         serde_json::from_slice(&output.stdout[4..]).expect("response JSON");
     assert_eq!(response["payload"]["type"], "healthy");
-    assert_eq!(response["payload"]["host_version"], "0.1.0");
+    assert_eq!(response["payload"]["host_version"], "1.0.0");
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn firefox_manifest_and_add_on_id_receive_health_response() {
     let response: serde_json::Value =
         serde_json::from_slice(&output.stdout[4..]).expect("response JSON");
     assert_eq!(response["payload"]["type"], "healthy");
-    assert_eq!(response["payload"]["host_version"], "0.1.0");
+    assert_eq!(response["payload"]["host_version"], "1.0.0");
 
     fs::remove_dir_all(root).expect("remove fixture directory");
 }

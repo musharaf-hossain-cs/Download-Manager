@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn version_contract_is_stable() {
-        assert_eq!(VERSION, "0.1.0");
-        assert_eq!(version_banner(), "download-manager-engine 0.1.0");
+        assert_eq!(VERSION, "1.0.0");
+        assert_eq!(version_banner(), "download-manager-engine 1.0.0");
     }
 }

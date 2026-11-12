@@ -8,6 +8,6 @@ describe("browser extension package", () => {
       "chromium",
       "firefox",
     ]);
-    expect(extensionIdentity.version).toBe("0.1.0");
+    expect(extensionIdentity.version).toBe("1.0.0");
   });
 });
