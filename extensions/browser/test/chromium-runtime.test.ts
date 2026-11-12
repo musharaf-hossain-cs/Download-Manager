@@ -18,7 +18,9 @@ const requestContext = {
   extensionId: CHROMIUM_EXTENSION_ID,
 };
 
-function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
+function fixture(
+  options: { enabled?: boolean; offline?: boolean; hostVersion?: string } = {},
+) {
   let actionListener: (() => void) | undefined;
   let installedListener: (() => void) | undefined;
   let menuListener: ((click: ChromiumMenuClick) => void) | undefined;
@@ -29,6 +31,7 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
   }
   const nativeMessages: ExtensionRequestEnvelope[] = [];
   const cancelled: number[] = [];
+  const removed: number[] = [];
   const browserDownloads: Array<{ url: string; saveAs?: boolean }> = [];
   const menus: unknown[] = [];
   const errors: unknown[] = [];
@@ -37,6 +40,7 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
     id: string;
     lastError?: { message: string };
     onInstalled: { addListener(listener: () => void): void };
+    getManifest(): { readonly version: string };
     sendNativeMessage(
       host: string,
       message: ExtensionRequestEnvelope,
@@ -49,6 +53,7 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
         installedListener = listener;
       },
     },
+    getManifest: () => ({ version: "0.1.0" }),
     sendNativeMessage(_host, message, callback) {
       nativeMessages.push(message);
       if (options.offline) {
@@ -56,11 +61,22 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
         callback(undefined);
         delete runtime.lastError;
       } else {
-        callback({
-          version: 1,
-          request_id: message.request_id,
-          payload: { type: "accepted", job_ids: ["job-1"] },
-        });
+        callback(
+          message.payload.type === "health"
+            ? {
+                version: 1,
+                request_id: message.request_id,
+                payload: {
+                  type: "healthy",
+                  host_version: options.hostVersion ?? "0.1.0",
+                },
+              }
+            : {
+                version: 1,
+                request_id: message.request_id,
+                payload: { type: "accepted", job_ids: ["job-1"] },
+              },
+        );
       }
     },
   };
@@ -84,6 +100,9 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
       onCreated: { addListener: (listener) => (downloadListener = listener) },
       cancel: async (id) => {
         cancelled.push(id);
+      },
+      removeFile: async (id) => {
+        removed.push(id);
       },
       download: async (details) => {
         browserDownloads.push(details);
@@ -110,6 +129,7 @@ function fixture(options: { enabled?: boolean; offline?: boolean } = {}) {
     storage,
     nativeMessages,
     cancelled,
+    removed,
     browserDownloads,
     menus,
     errors,
@@ -152,6 +172,25 @@ describe("Chromium MV3 runtime", () => {
     state.action();
     await vi.waitFor(() => expect(state.capture.enabled).toBe(true));
     expect(state.storage[CHROMIUM_CAPTURE_ENABLED_KEY]).toBe(true);
+    expect(state.badges.at(-1)).toBe("✓");
+  });
+
+  it("reports native health and version mismatch in the toolbar badge", async () => {
+    const connected = fixture();
+    await connected.capture.whenReady();
+    expect(connected.capture.nativeConnectionState).toBe("connected");
+    expect(connected.badges.at(-1)).toBe("✓");
+    expect(connected.nativeMessages[0]?.payload).toEqual({ type: "health" });
+
+    const mismatch = fixture({ hostVersion: "9.0.0" });
+    await mismatch.capture.whenReady();
+    expect(mismatch.capture.nativeConnectionState).toBe("version_mismatch");
+    expect(mismatch.badges.at(-1)).toBe("↕");
+
+    const offline = fixture({ offline: true });
+    await offline.capture.whenReady();
+    expect(offline.capture.nativeConnectionState).toBe("disconnected");
+    expect(offline.badges.at(-1)).toBe("!");
   });
 
   it("hands an ordinary fixture download to the app exactly once", async () => {
@@ -166,8 +205,9 @@ describe("Chromium MV3 runtime", () => {
     state.created(item);
     state.created(item);
     await vi.waitFor(() => expect(state.cancelled).toEqual([42]));
-    expect(state.nativeMessages).toHaveLength(1);
-    expect(state.nativeMessages[0]?.payload).toEqual({
+    expect(state.removed).toEqual([42]);
+    expect(state.nativeMessages).toHaveLength(2);
+    expect(state.nativeMessages[1]?.payload).toEqual({
       type: "add_download",
       url: item.url,
       referrer: item.referrer,
@@ -181,6 +221,7 @@ describe("Chromium MV3 runtime", () => {
     state.created({ id: 7, url: "https://files.example.test/offline.zip" });
     await vi.waitFor(() => expect(state.nativeMessages).toHaveLength(1));
     expect(state.cancelled).toEqual([]);
+    expect(state.removed).toEqual([]);
     expect(state.browserDownloads).toEqual([]);
     expect(state.errors).toEqual([]);
   });
@@ -194,7 +235,8 @@ describe("Chromium MV3 runtime", () => {
     state.created({ id: 9, url });
     await settled();
     expect(state.browserDownloads).toEqual([{ url, saveAs: true }]);
-    expect(state.nativeMessages).toEqual([]);
+    expect(state.nativeMessages).toHaveLength(1);
+    expect(state.nativeMessages[0]?.payload).toEqual({ type: "health" });
     expect(state.cancelled).toEqual([]);
   });
 
@@ -203,7 +245,7 @@ describe("Chromium MV3 runtime", () => {
     await accepted.capture.whenReady();
     const url = "https://files.example.test/forced.zip";
     accepted.click({ menuItemId: CHROMIUM_FORCE_MENU_ID, linkUrl: url });
-    await vi.waitFor(() => expect(accepted.nativeMessages).toHaveLength(1));
+    await vi.waitFor(() => expect(accepted.nativeMessages).toHaveLength(2));
     expect(accepted.browserDownloads).toEqual([]);
 
     const offline = fixture({ enabled: false, offline: true });
@@ -211,6 +253,6 @@ describe("Chromium MV3 runtime", () => {
     offline.click({ menuItemId: CHROMIUM_FORCE_MENU_ID, linkUrl: url });
     await vi.waitFor(() => expect(offline.browserDownloads).toHaveLength(1));
     expect(offline.browserDownloads).toEqual([{ url, saveAs: false }]);
-    expect(offline.nativeMessages).toHaveLength(1);
+    expect(offline.nativeMessages).toHaveLength(2);
   });
 });

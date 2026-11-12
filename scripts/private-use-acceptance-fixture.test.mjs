@@ -32,6 +32,17 @@ try {
   assert.equal(manifest.schema_version, 1);
   assert.equal(manifest.port, port);
 
+  const browserPage = await globalThis.fetch(manifest.browser_page_url);
+  const browserPageBody = await browserPage.text();
+  assert.equal(browserPage.status, 200);
+  for (const path of [
+    "chrome-capture.bin",
+    "edge-capture.bin",
+    "fallback.txt",
+  ]) {
+    assert.match(browserPageBody, new RegExp(`href="/${path}"`, "u"));
+  }
+
   const small = await globalThis.fetch(manifest.fixtures.small.url);
   const smallBytes = Buffer.from(await small.arrayBuffer());
   assert.equal(small.status, 200);

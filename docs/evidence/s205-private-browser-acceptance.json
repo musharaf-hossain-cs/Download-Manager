@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slice": "S205",
+  "segment": "PU12",
+  "status": "passed",
+  "finished_at_utc": "2026-11-12T05:53:08.6615306Z",
+  "source": {
+    "commit_before_slice": "839c006c95b59fc4fdb35fd22da03b67ee935b25",
+    "product_version": "0.1.0",
+    "extension_id": "ackbonlbpniilcfmmnfdohnhbdbajhii",
+    "native_host": "io.github.musharaf_hossain_cs.download_manager"
+  },
+  "host": {
+    "caption": "Microsoft Windows 10 Pro",
+    "version": "10.0.19045",
+    "build": 19045,
+    "architecture": "64-bit"
+  },
+  "tools": {
+    "node": "24.22.1",
+    "pnpm": "12.15.0"
+  },
+  "installer": {
+    "filename": "Download Manager_0.1.0_x64-setup.exe",
+    "size": 4759809,
+    "sha256": "4667c08d0cafd55dc46e80aa027ee9cf0b1b0b51a436b491a9660e4507153bdd",
+    "installed_path": "%LOCALAPPDATA%\\Programs\\Download Manager",
+    "packaged_extension_manifest_verified": true,
+    "packaged_native_host_verified": true,
+    "repair_verified": true
+  },
+  "browsers": [
+    {
+      "name": "chrome",
+      "version": "157.0.8103.50",
+      "native_health_badge": "✓",
+      "captured_filename": "pu12-chrome-capture.bin",
+      "captured_bytes": 4194321,
+      "completed_app_jobs": 1,
+      "duplicate_browser_files": 0
+    },
+    {
+      "name": "edge",
+      "version": "157.0.4341.46",
+      "native_health_badge": "✓",
+      "captured_filename": "pu12-edge-capture.bin",
+      "captured_bytes": 4194333,
+      "completed_app_jobs": 1,
+      "duplicate_browser_files": 0
+    }
+  ],
+  "fallback": {
+    "backend": "offline",
+    "browser_download_preserved": true,
+    "filename": "pu12-browser-fallback.txt",
+    "sha256": "d75ad1f7938ed3915c6f99f55b200abb0deccbd094f1f1ad07bb2d1ff3fe354a"
+  },
+  "uninstall": {
+    "install_directory_removed": true,
+    "chrome_registration_removed": true,
+    "edge_registration_removed": true,
+    "native_manifest_removed": true,
+    "existing_state_preserved": true,
+    "completed_downloads_preserved": true
+  },
+  "commands": [
+    "pnpm --filter @download-manager/browser-extension test",
+    "pwsh -NoProfile -File scripts/test-private-use-installer.ps1",
+    "$env:PU12_BROWSERS='chrome,edge'; node scripts/test-private-use-browser-acceptance.mjs"
+  ],
+  "boundaries": [
+    "Browser fixtures were deterministic loopback HTTP resources on this laptop.",
+    "Chrome used the official Chrome for Testing build because branded Chrome ignores command-line unpacked-extension loading.",
+    "Edge used a disposable profile under test-results/pu12; the normal Edge profile was not modified.",
+    "Code signing, SmartScreen reputation, publication, and public-v1 release readiness remain outside this private-use slice."
+  ],
+  "failure": null
+}

@@ -5,6 +5,9 @@ param(
     [ValidateSet('Register', 'Repair', 'Unregister')]
     [string] $Action = 'Register',
 
+    [ValidateSet('All', 'Chromium', 'Firefox')]
+    [string] $Browser = 'All',
+
     [string] $ManifestRoot,
     [string] $OnboardingPath,
     [string] $RegistrationRoot = 'Registry::HKEY_CURRENT_USER\Software',
@@ -43,6 +46,13 @@ if (-not $OnboardingPath) {
 $OnboardingPath = [IO.Path]::GetFullPath($OnboardingPath)
 $chromiumManifestPath = Join-Path $ManifestRoot "$hostName.json"
 $firefoxManifestPath = Join-Path $ManifestRoot "$hostName.firefox.json"
+$includeChromium = $Browser -in @('All', 'Chromium')
+$includeFirefox = $Browser -in @('All', 'Firefox')
+$chromiumNextStep = if ($Browser -eq 'Chromium') {
+    'load_packaged_extension'
+} else {
+    'install_or_enable_extension'
+}
 
 if ($Action -eq 'Repair' -and -not (Test-Path -LiteralPath $OnboardingPath -PathType Leaf)) {
     Write-Verbose 'Browser onboarding state is missing and will be recreated.'
@@ -115,11 +125,17 @@ function Remove-OwnedPath([string] $Path, [switch] $Recurse) {
 }
 
 if ($Action -eq 'Unregister') {
-    foreach ($suffix in @(
-        'Google\Chrome\NativeMessagingHosts',
-        'Microsoft\Edge\NativeMessagingHosts',
-        'Mozilla\NativeMessagingHosts'
-    )) {
+    $registrationSuffixes = @()
+    if ($includeChromium) {
+        $registrationSuffixes += @(
+            'Google\Chrome\NativeMessagingHosts',
+            'Microsoft\Edge\NativeMessagingHosts'
+        )
+    }
+    if ($includeFirefox) {
+        $registrationSuffixes += 'Mozilla\NativeMessagingHosts'
+    }
+    foreach ($suffix in $registrationSuffixes) {
         $keyPath = Get-KeyPath $suffix
         if (-not $RegistrationRoot.StartsWith('Registry::', [StringComparison]::OrdinalIgnoreCase)) {
             $root = [IO.Path]::GetFullPath($RegistrationRoot).TrimEnd('\', '/') +
@@ -131,8 +147,8 @@ if ($Action -eq 'Unregister') {
         }
         Remove-OwnedPath $keyPath -Recurse
     }
-    Remove-OwnedPath $chromiumManifestPath
-    Remove-OwnedPath $firefoxManifestPath
+    if ($includeChromium) { Remove-OwnedPath $chromiumManifestPath }
+    if ($includeFirefox) { Remove-OwnedPath $firefoxManifestPath }
     Remove-OwnedPath $OnboardingPath
     return
 }
@@ -152,38 +168,44 @@ $firefoxManifest = [ordered]@{
     allowed_extensions = @($firefoxExtensionId)
 }
 
-Write-JsonAtomic $chromiumManifestPath $chromiumManifest
-Write-JsonAtomic $firefoxManifestPath $firefoxManifest
-Set-Registration 'Google\Chrome\NativeMessagingHosts' $chromiumManifestPath
-Set-Registration 'Microsoft\Edge\NativeMessagingHosts' $chromiumManifestPath
-Set-Registration 'Mozilla\NativeMessagingHosts' $firefoxManifestPath
-
-$onboarding = [ordered]@{
-    schema_version = 1
-    host_name = $hostName
-    browsers = @(
+$browsers = @()
+if ($includeChromium) {
+    Write-JsonAtomic $chromiumManifestPath $chromiumManifest
+    Set-Registration 'Google\Chrome\NativeMessagingHosts' $chromiumManifestPath
+    Set-Registration 'Microsoft\Edge\NativeMessagingHosts' $chromiumManifestPath
+    $browsers += @(
         [ordered]@{
             browser = 'chrome'
             extension_id = $chromiumExtensionId
             manifest = $chromiumManifestPath
             state = 'native_host_registered'
-            next_step = 'install_or_enable_extension'
+            next_step = $chromiumNextStep
         },
         [ordered]@{
             browser = 'edge'
             extension_id = $chromiumExtensionId
             manifest = $chromiumManifestPath
             state = 'native_host_registered'
-            next_step = 'install_or_enable_extension'
-        },
-        [ordered]@{
-            browser = 'firefox'
-            extension_id = $firefoxExtensionId
-            manifest = $firefoxManifestPath
-            state = 'native_host_registered'
-            next_step = 'install_or_enable_extension'
+            next_step = $chromiumNextStep
         }
     )
+}
+if ($includeFirefox) {
+    Write-JsonAtomic $firefoxManifestPath $firefoxManifest
+    Set-Registration 'Mozilla\NativeMessagingHosts' $firefoxManifestPath
+    $browsers += [ordered]@{
+        browser = 'firefox'
+        extension_id = $firefoxExtensionId
+        manifest = $firefoxManifestPath
+        state = 'native_host_registered'
+        next_step = 'install_or_enable_extension'
+    }
+}
+
+$onboarding = [ordered]@{
+    schema_version = 1
+    host_name = $hostName
+    browsers = $browsers
 }
 Write-JsonAtomic $OnboardingPath $onboarding
 if ($PassThru) { Write-Output $onboarding }

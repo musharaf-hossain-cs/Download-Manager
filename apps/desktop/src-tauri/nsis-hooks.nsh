@@ -10,7 +10,22 @@ CRCCheck force
   SetOutPath $INSTDIR
 !macroend
 
+!macro NSIS_HOOK_POSTINSTALL
+  # PU12 installs only the current-user Chromium registrations. The unpacked
+  # extension and repair helper are ordinary payload files under $INSTDIR.
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\native-host-registration.ps1" -Action Register -Browser Chromium -HostPath "$INSTDIR\download-manager-native-host.exe" -OnboardingPath "$INSTDIR\browser-onboarding.json"' $0
+  ${If} $0 != 0
+    Abort "Download Manager could not register its Chrome/Edge native host (exit $0)."
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_PREUNINSTALL
+  # Remove browser launch paths before Tauri removes the host and helper.
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\native-host-registration.ps1" -Action Unregister -Browser Chromium -OnboardingPath "$INSTDIR\browser-onboarding.json"' $0
+  ${If} $0 != 0
+    Abort "Download Manager could not remove its Chrome/Edge native-host registration (exit $0)."
+  ${EndIf}
+
   # Silent uninstall is deliberately conservative. Interactive uninstallers
   # offer the explicit state choice requested by PU08.
   IfSilent dm_keep_state

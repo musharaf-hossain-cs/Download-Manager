@@ -35,8 +35,14 @@
     "icon": ["icons/icon.ico"],
     "externalBin": [
       "binaries/download-manager-backend",
-      "binaries/download-manager-cli"
+      "binaries/download-manager-cli",
+      "binaries/download-manager-native-host"
     ],
+    "resources": {
+      "../../../packaging/windows/native-host-registration.ps1": "native-host-registration.ps1",
+      "../../../packaging/windows/PRIVATE_BROWSER_SETUP.txt": "BROWSER_SETUP.txt",
+      "../../../extensions/browser/dist/chromium/": "browser-extension/"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "skip"

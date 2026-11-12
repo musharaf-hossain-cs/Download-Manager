@@ -1,0 +1,27 @@
+Download Manager browser setup (private use)
+================================================
+
+Chrome
+1. Open chrome://extensions and enable Developer mode.
+2. Choose Load unpacked.
+3. Select this installed folder:
+   %LOCALAPPDATA%\Programs\Download Manager\browser-extension
+
+Edge
+1. Open edge://extensions and enable Developer mode.
+2. Choose Load unpacked.
+3. Select the same browser-extension folder shown above.
+
+Both browsers must show extension ID ackbonlbpniilcfmmnfdohnhbdbajhii.
+The toolbar badge shows a check mark when the packaged native host is connected,
+an exclamation mark when it is unavailable, or up/down arrows for a version mismatch.
+
+If the host is disconnected, close every Chrome and Edge window, then run:
+
+  & "$env:LOCALAPPDATA\Programs\Download Manager\native-host-registration.ps1" `
+    -Action Repair -Browser Chromium `
+    -HostPath "$env:LOCALAPPDATA\Programs\Download Manager\download-manager-native-host.exe" `
+    -OnboardingPath "$env:LOCALAPPDATA\Programs\Download Manager\browser-onboarding.json"
+
+Reopen the browser after repair. If the app or native host rejects a request,
+the original browser download remains available as the fallback.

@@ -20,6 +20,12 @@ $dataRootExisted = Test-Path -LiteralPath $dataRoot -PathType Container
 $installed = $false
 $guiProcess = $null
 $backendProcess = $null
+$hostName = 'io.github.musharaf_hossain_cs.download_manager'
+$extensionId = 'ackbonlbpniilcfmmnfdohnhbdbajhii'
+$manifestRoot = Join-Path $dataRoot 'NativeMessagingHosts'
+$nativeManifestPath = Join-Path $manifestRoot "$hostName.json"
+$chromeRegistration = "Registry::HKEY_CURRENT_USER\Software\Google\Chrome\NativeMessagingHosts\$hostName"
+$edgeRegistration = "Registry::HKEY_CURRENT_USER\Software\Microsoft\Edge\NativeMessagingHosts\$hostName"
 
 function Invoke-CapturedProcess {
     param(
@@ -59,6 +65,82 @@ function Invoke-CapturedProcess {
 function Invoke-SilentInstaller([string] $Path) {
     $process = Start-Process -FilePath $Path -ArgumentList '/S' -Wait -PassThru
     try { return $process.ExitCode } finally { $process.Dispose() }
+}
+
+function Read-Exact([IO.Stream] $Stream, [int] $Length) {
+    [byte[]] $buffer = [byte[]]::new($Length)
+    $offset = 0
+    while ($offset -lt $Length) {
+        $count = $Stream.Read($buffer, $offset, $Length - $offset)
+        if ($count -eq 0) { throw "Stream ended after $offset of $Length bytes." }
+        $offset += $count
+    }
+    return ,$buffer
+}
+
+function Test-NativeConnection([string] $HostPath) {
+    $requestId = [Guid]::NewGuid().ToString()
+    $request = [ordered]@{
+        version = 1
+        request_id = $requestId
+        nonce = 'abcdefghijklmnop'
+        extension_id = $extensionId
+        payload = [ordered]@{ type = 'health' }
+    } | ConvertTo-Json -Depth 3 -Compress
+    [byte[]] $body = [Text.Encoding]::UTF8.GetBytes($request)
+    [byte[]] $header = [BitConverter]::GetBytes([uint32] $body.Length)
+    if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($header) }
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $HostPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add("chrome-extension://$extensionId/")
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        $process.StandardInput.BaseStream.Write($header, 0, $header.Length)
+        $process.StandardInput.BaseStream.Write($body, 0, $body.Length)
+        $process.StandardInput.BaseStream.Flush()
+        [byte[]] $responseHeader = Read-Exact $process.StandardOutput.BaseStream 4
+        if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($responseHeader) }
+        $responseLength = [BitConverter]::ToUInt32($responseHeader, 0)
+        [byte[]] $responseBody = Read-Exact $process.StandardOutput.BaseStream $responseLength
+        $response = [Text.Encoding]::UTF8.GetString($responseBody) | ConvertFrom-Json
+        if ($response.version -ne 1 -or $response.request_id -ne $requestId -or
+            $response.payload.type -ne 'healthy' -or -not $response.payload.host_version) {
+            throw 'The installed native host did not return a correlated health response.'
+        }
+        $process.StandardInput.Close()
+        if (-not $process.WaitForExit(5000) -or $process.ExitCode -ne 0) {
+            throw "The installed native host did not exit cleanly: $($process.StandardError.ReadToEnd())"
+        }
+    } finally {
+        if (-not $process.HasExited) { $process.Kill($true) }
+        $process.Dispose()
+    }
+}
+
+function Assert-BrowserRegistration([string] $HostPath) {
+    if (-not (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf)) {
+        throw 'The installed Chromium native-host manifest is missing.'
+    }
+    $nativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw | ConvertFrom-Json
+    if ($nativeManifest.name -ne $hostName -or $nativeManifest.path -ne $HostPath -or
+        @($nativeManifest.allowed_origins).Count -ne 1 -or
+        $nativeManifest.allowed_origins[0] -ne "chrome-extension://$extensionId/") {
+        throw 'The installed Chromium native-host manifest is invalid.'
+    }
+    foreach ($key in @($chromeRegistration, $edgeRegistration)) {
+        if (-not (Test-Path -LiteralPath $key)) {
+            throw "The current-user browser registration is missing: '$key'."
+        }
+        $registeredManifest = (Get-Item -LiteralPath $key).GetValue('')
+        if ($registeredManifest -ne $nativeManifestPath) {
+            throw "The current-user browser registration targets '$registeredManifest'."
+        }
+    }
 }
 
 try {
@@ -103,16 +185,62 @@ try {
     $desktopPath = Join-Path $installRoot 'download-manager-desktop.exe'
     $backendPath = Join-Path $installRoot 'download-manager-backend.exe'
     $cliPath = Join-Path $installRoot 'download-manager-cli.exe'
-    foreach ($path in @($desktopPath, $backendPath, $cliPath, (Join-Path $installRoot 'uninstall.exe'))) {
+    $hostPath = Join-Path $installRoot 'download-manager-native-host.exe'
+    $registrationScript = Join-Path $installRoot 'native-host-registration.ps1'
+    $onboardingPath = Join-Path $installRoot 'browser-onboarding.json'
+    $extensionRoot = Join-Path $installRoot 'browser-extension'
+    foreach ($path in @(
+        $desktopPath,
+        $backendPath,
+        $cliPath,
+        $hostPath,
+        $registrationScript,
+        $onboardingPath,
+        (Join-Path $installRoot 'BROWSER_SETUP.txt'),
+        (Join-Path $extensionRoot 'manifest.json'),
+        (Join-Path $extensionRoot 'src\service-worker.js'),
+        (Join-Path $installRoot 'uninstall.exe')
+    )) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "The installed payload is incomplete: '$path'."
         }
     }
     if (@(Get-ChildItem -LiteralPath $installRoot -File -Recurse | Where-Object {
-        $_.Name -match 'native-host|ffmpeg'
+        $_.Name -match 'ffmpeg'
     }).Count -ne 0) {
-        throw 'PU08 unexpectedly packaged a browser native host or FFmpeg.'
+        throw 'The private-use installer unexpectedly packaged FFmpeg.'
     }
+    $extensionManifest = Get-Content -LiteralPath (Join-Path $extensionRoot 'manifest.json') -Raw |
+        ConvertFrom-Json
+    if ($extensionManifest.manifest_version -ne 3 -or
+        $extensionManifest.background.service_worker -ne 'src/service-worker.js' -or
+        -not $extensionManifest.key) {
+        throw 'The installed unpacked Chromium extension is invalid.'
+    }
+    Assert-BrowserRegistration $hostPath
+    $onboarding = Get-Content -LiteralPath $onboardingPath -Raw | ConvertFrom-Json
+    if ($onboarding.schema_version -ne 1 -or
+        (@($onboarding.browsers.browser) -join ',') -ne 'chrome,edge' -or
+        @($onboarding.browsers | Where-Object {
+            $_.extension_id -ne $extensionId -or $_.next_step -ne 'load_packaged_extension'
+        }).Count -ne 0) {
+        throw 'The installer did not create exact Chrome/Edge onboarding state.'
+    }
+    Test-NativeConnection $hostPath
+
+    # Exercise the installed repair entry point after both corrupt and missing state.
+    [IO.File]::WriteAllText($nativeManifestPath, '{"name":"wrong.owner"}')
+    Remove-Item -LiteralPath $chromeRegistration -Recurse -Force
+    Set-Item -LiteralPath $edgeRegistration -Value 'C:\stale\native-host.json'
+    [IO.File]::WriteAllText($onboardingPath, '{"schema_version":0}')
+    & $registrationScript -Action Repair -Browser Chromium -HostPath $hostPath `
+        -OnboardingPath $onboardingPath
+    Assert-BrowserRegistration $hostPath
+    $repairedOnboarding = Get-Content -LiteralPath $onboardingPath -Raw | ConvertFrom-Json
+    if ((@($repairedOnboarding.browsers.browser) -join ',') -ne 'chrome,edge') {
+        throw 'Repair did not restore exact Chrome/Edge onboarding state.'
+    }
+    Test-NativeConnection $hostPath
     if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
         throw 'The GUI Start Menu shortcut was not created.'
     }
@@ -197,6 +325,11 @@ try {
     if ((Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $shortcutPath)) {
         throw 'Uninstall left application files or the Start Menu shortcut.'
     }
+    if ((Test-Path -LiteralPath $chromeRegistration) -or
+        (Test-Path -LiteralPath $edgeRegistration) -or
+        (Test-Path -LiteralPath $nativeManifestPath)) {
+        throw 'Uninstall left a Chrome/Edge native-host registration or manifest.'
+    }
     $installed = $false
     if ((Get-Content -LiteralPath $sentinelPath -Raw) -cne 'retained-app-state') {
         throw 'Conservative uninstall did not retain application state.'
@@ -221,7 +354,7 @@ try {
         throw 'A truncated NSIS payload was not rejected before installation.'
     }
 
-    Write-Host 'PU08 per-user Tauri/NSIS build, install, health, integrity, and uninstall smoke passed.'
+    Write-Host 'PU12 private NSIS browser packaging, install, repair, health, and cleanup smoke passed.'
 } finally {
     if ($guiProcess) {
         if (-not $guiProcess.HasExited) { $guiProcess.Kill($true) }

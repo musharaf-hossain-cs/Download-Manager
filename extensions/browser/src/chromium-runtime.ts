@@ -1,5 +1,8 @@
 import { CHROMIUM_EXTENSION_ID } from "./chromium-identity.js";
-import { NATIVE_HOST_NAME } from "./connection-health.js";
+import {
+  NATIVE_HOST_NAME,
+  type NativeConnectionState,
+} from "./connection-health.js";
 import {
   LinkHandoffController,
   type BrowserDownloadCandidate,
@@ -52,6 +55,7 @@ export interface ChromiumRuntimeApi {
   readonly downloads: {
     readonly onCreated: ChromiumEvent<(item: ChromiumDownloadItem) => void>;
     cancel(downloadId: number): Promise<void>;
+    removeFile(downloadId: number): Promise<void>;
     download(details: {
       readonly url: string;
       readonly saveAs?: boolean;
@@ -61,6 +65,7 @@ export interface ChromiumRuntimeApi {
     readonly id: string;
     readonly lastError?: { readonly message?: string };
     readonly onInstalled: ChromiumEvent<() => void>;
+    getManifest(): { readonly version: string };
     sendNativeMessage(
       hostName: string,
       message: ExtensionRequestEnvelope,
@@ -87,6 +92,7 @@ export class ChromiumCaptureRuntime {
   readonly #controller: LinkHandoffController;
   readonly #ready: Promise<void>;
   #enabled = true;
+  #nativeConnectionState: NativeConnectionState = "connecting";
 
   public constructor(
     private readonly api: ChromiumRuntimeApi,
@@ -96,11 +102,18 @@ export class ChromiumCaptureRuntime {
     ) => HandoffRequestContext = () =>
       createChromiumRequestContext(api.runtime.id),
   ) {
+    const nativeConnectionState = () => this.#nativeConnectionState;
     this.#controller = new LinkHandoffController(
-      { state: "connected" },
+      {
+        get state() {
+          return nativeConnectionState() === "connected"
+            ? "connected"
+            : "disconnected";
+        },
+      },
       { send: (message) => this.#sendNative(message) },
       {
-        cancel: (downloadId) => this.api.downloads.cancel(downloadId),
+        cancel: (downloadId) => this.#cancelBrowserDownload(downloadId),
         fallback: async () => undefined,
       },
       (candidate) => this.createContext(candidate),
@@ -111,6 +124,10 @@ export class ChromiumCaptureRuntime {
 
   public get enabled(): boolean {
     return this.#enabled;
+  }
+
+  public get nativeConnectionState(): NativeConnectionState {
+    return this.#nativeConnectionState;
   }
 
   public whenReady(): Promise<void> {
@@ -143,7 +160,7 @@ export class ChromiumCaptureRuntime {
     );
     const enabled = stored[CHROMIUM_CAPTURE_ENABLED_KEY];
     this.#enabled = typeof enabled === "boolean" ? enabled : true;
-    await this.#renderEnabled();
+    await this.#refreshNativeHealth();
   }
 
   async #afterReady(operation: () => Promise<void>): Promise<void> {
@@ -174,18 +191,46 @@ export class ChromiumCaptureRuntime {
     await this.api.storage.local.set({
       [CHROMIUM_CAPTURE_ENABLED_KEY]: this.#enabled,
     });
-    await this.#renderEnabled();
+    await this.#renderStatus();
   }
 
-  async #renderEnabled(): Promise<void> {
+  async #refreshNativeHealth(): Promise<void> {
+    this.#nativeConnectionState = "connecting";
+    await this.#renderStatus();
+    const context = this.createContext();
+    try {
+      const response = await this.#sendNative({
+        version: EXTENSION_PROTOCOL_VERSION,
+        request_id: context.requestId,
+        nonce: context.nonce,
+        extension_id: context.extensionId,
+        payload: { type: "health" },
+      });
+      if (!isHealthyResponse(response, context.requestId)) {
+        this.#nativeConnectionState = "disconnected";
+      } else if (
+        response.version !== EXTENSION_PROTOCOL_VERSION ||
+        response.payload.host_version !== this.api.runtime.getManifest().version
+      ) {
+        this.#nativeConnectionState = "version_mismatch";
+      } else {
+        this.#nativeConnectionState = "connected";
+      }
+    } catch {
+      this.#nativeConnectionState = "disconnected";
+    }
+    await this.#renderStatus();
+  }
+
+  async #renderStatus(): Promise<void> {
+    const presentation = chromiumStatusPresentation(
+      this.#nativeConnectionState,
+      this.#enabled,
+    );
     await Promise.all([
-      this.api.action.setBadgeBackgroundColor({ color: "#5f6368" }),
-      this.api.action.setBadgeText({ text: this.#enabled ? "" : "OFF" }),
-      this.api.action.setTitle({
-        title: this.#enabled
-          ? "Download Manager capture is enabled"
-          : "Download Manager capture is disabled",
-      }),
+      this.api.action.setBadgeBackgroundColor({ color: presentation.color }),
+      this.api.action.setBadgeText({ text: presentation.text }),
+      this.api.action.setTitle({ title: presentation.title }),
     ]);
   }
 
@@ -197,6 +242,15 @@ export class ChromiumCaptureRuntime {
       referrer: item.referrer?.length ? item.referrer : null,
       suggestedFilename: filenameOnly(item.filename),
     });
+  }
+
+  async #cancelBrowserDownload(downloadId: number): Promise<void> {
+    await this.api.downloads.cancel(downloadId);
+    try {
+      await this.api.downloads.removeFile(downloadId);
+    } catch {
+      // A cancelled in-progress transfer may have no completed file to remove.
+    }
   }
 
   async #handleMenuClick(click: ChromiumMenuClick): Promise<void> {
@@ -319,4 +373,64 @@ function acceptedJobId(value: unknown, requestId: string): string | null {
     ids[0].length > 0
     ? ids[0]
     : null;
+}
+
+function isHealthyResponse(
+  value: unknown,
+  requestId: string,
+): value is {
+  readonly version: number;
+  readonly request_id: string;
+  readonly payload: { readonly type: "healthy"; readonly host_version: string };
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const envelope = value as Record<string, unknown>;
+  if (
+    typeof envelope.version !== "number" ||
+    envelope.request_id !== requestId ||
+    typeof envelope.payload !== "object" ||
+    envelope.payload === null
+  ) {
+    return false;
+  }
+  const payload = envelope.payload as Record<string, unknown>;
+  return payload.type === "healthy" && typeof payload.host_version === "string";
+}
+
+function chromiumStatusPresentation(
+  state: NativeConnectionState,
+  enabled: boolean,
+): { readonly text: string; readonly color: string; readonly title: string } {
+  if (state === "connecting") {
+    return {
+      text: "…",
+      color: "#5f6368",
+      title: "Download Manager: connecting",
+    };
+  }
+  if (state === "disconnected") {
+    return {
+      text: "!",
+      color: "#b3261e",
+      title: "Download Manager: native host disconnected",
+    };
+  }
+  if (state === "version_mismatch") {
+    return {
+      text: "↕",
+      color: "#b06000",
+      title: "Download Manager: native host version mismatch",
+    };
+  }
+  return enabled
+    ? {
+        text: "✓",
+        color: "#137333",
+        title: "Download Manager: connected; capture enabled",
+      }
+    : {
+        text: "OFF",
+        color: "#5f6368",
+        title: "Download Manager: connected; capture disabled",
+      };
 }

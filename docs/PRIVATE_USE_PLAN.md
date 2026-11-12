@@ -318,14 +318,13 @@ These segments are intentionally after PU09. Direct URL downloads remain usable 
 
 ### Completion record
 
-Phase E maps PU10–PU12 to repository completion slices S203–S205. PU10–PU11 are complete; only
-private-installer browser integration remains as a separate later segment.
+Phase E maps PU10–PU12 to repository completion slices S203–S205. All three segments are complete.
 
 | Segment | Slice | Status | Evidence |
 | ------- | ----- | ------ | -------- |
 | PU10 | S203 | Complete | Native-host unit/process tests cover local health, strict malformed/duplicate rejection, packaged-origin binding, authenticated backend-offline fallback, typed backend rejection, and exactly one accepted job ID. CLI tests carry the browser request over authenticated current-user IPC and run a real fixture download; the request ID deterministically binds the same durable SQLite job before and after backend restart, while destination rejection creates no job. |
 | PU11 | S204 | Complete | `pnpm --filter @download-manager/browser-extension build:chromium` emits a permission-bounded Manifest V3 worker package whose committed public key derives `ackbonlbpniilcfmmnfdohnhbdbajhii`; the same ID is enforced by the production native host and Chrome/Edge registration. The 158-test extension suite covers persistent enablement, explicit force/bypass, exactly-once ACK-before-cancel handoff, and offline browser fallback; native-host crate plus registration smoke tests pass. Installed Edge 157.0.4341.42 and official Chrome for Testing 157.0.8103.50 each loaded the package with exactly one service worker at the deterministic extension URL and no manifest error. |
-| PU12 | S205 | Pending | Private-installer browser files, registration, and installed-browser acceptance remain pending. |
+| PU12 | S205 | Complete | The 4.54 MiB NSIS artifact packages the native host, deterministic unpacked Chromium extension, repair helper, and current-user Chrome/Edge registration. The full install/repair/health/cleanup smoke passed. Installed Chrome for Testing 157.0.8103.50 and Edge 157.0.4341.46 each reported healthy native connectivity and created exactly one completed fixture job with no persistent browser duplicate; backend-offline fallback preserved the browser download. Silent uninstall removed the app, both registrations, and native manifest while preserving existing state. See [`s205-private-browser-acceptance.json`](evidence/s205-private-browser-acceptance.json). |
 
 ### PU10 — Route native-host download requests to the backend
 

@@ -19,6 +19,46 @@ const fixtures = new Map([
     },
   ],
   [
+    "/edge.txt",
+    {
+      filename: "pu12-edge.txt",
+      body: Buffer.from("PU12 installed Edge capture fixture\r\n", "utf8"),
+      delayMs: 0,
+      chunked: false,
+      mutableIdentity: false,
+    },
+  ],
+  [
+    "/chrome-capture.bin",
+    {
+      filename: "pu12-chrome-capture.bin",
+      size: 4 * 1024 * 1024 + 17,
+      delayMs: 20,
+      chunked: false,
+      mutableIdentity: false,
+    },
+  ],
+  [
+    "/edge-capture.bin",
+    {
+      filename: "pu12-edge-capture.bin",
+      size: 4 * 1024 * 1024 + 29,
+      delayMs: 20,
+      chunked: false,
+      mutableIdentity: false,
+    },
+  ],
+  [
+    "/fallback.txt",
+    {
+      filename: "pu12-browser-fallback.txt",
+      body: Buffer.from("PU12 offline browser fallback fixture\r\n", "utf8"),
+      delayMs: 0,
+      chunked: false,
+      mutableIdentity: false,
+    },
+  ],
+  [
     "/large.bin",
     {
       filename: "pu09-large.bin",
@@ -79,6 +119,19 @@ const server = createServer(async (request, response) => {
       request.url ?? "/",
       `http://${host}:${options.port}`,
     );
+    if (url.pathname === "/browser.html" && request.method === "GET") {
+      const body = Buffer.from(
+        '<!doctype html><title>PU12 browser acceptance</title><h1>PU12 installed browser capture</h1><a id="chrome-capture" href="/chrome-capture.bin">Chrome capture fixture</a><a id="edge-capture" href="/edge-capture.bin">Edge capture fixture</a><a id="offline-fallback" href="/fallback.txt">Offline fallback fixture</a>',
+        "utf8",
+      );
+      response.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Length": String(body.length),
+        Connection: "close",
+      });
+      response.end(body);
+      return;
+    }
     const fixture = fixtures.get(url.pathname);
     if (
       fixture === undefined ||
@@ -112,6 +165,7 @@ server.listen(options.port, host, async () => {
     schema_version: 1,
     host,
     port: options.port,
+    browser_page_url: `${baseUrl}/browser.html`,
     identity_file: options.identityFile,
     fixtures: Object.fromEntries(
       [...fixtures.entries()].map(([path, fixture]) => [

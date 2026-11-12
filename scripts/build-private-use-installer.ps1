@@ -49,11 +49,16 @@ if (-not $SkipBuild) {
     [IO.Directory]::CreateDirectory($sidecarRoot) | Out-Null
     Push-Location $repositoryRoot
     try {
-        & cargo build --locked --release -p download-manager-cli --bins |
+        & cargo build --locked --release -p download-manager-cli --bins `
+            -p download-manager-native-host |
             ForEach-Object { Write-Host $_ }
-        if ($LASTEXITCODE -ne 0) { throw 'The release backend/CLI build failed.' }
+        if ($LASTEXITCODE -ne 0) { throw 'The release backend/CLI/native-host build failed.' }
 
-        foreach ($name in @('download-manager-backend', 'download-manager-cli')) {
+        foreach ($name in @(
+            'download-manager-backend',
+            'download-manager-cli',
+            'download-manager-native-host'
+        )) {
             $source = Join-Path $releaseRoot "$name.exe"
             if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
                 throw "The required release sidecar is missing: '$source'."
@@ -61,6 +66,10 @@ if (-not $SkipBuild) {
             Copy-Item -LiteralPath $source -Destination `
                 (Join-Path $sidecarRoot "$name-$TargetTriple.exe") -Force
         }
+
+        & pnpm --filter '@download-manager/browser-extension' build:chromium |
+            ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { throw 'The Chromium extension build failed.' }
 
         & pnpm --filter '@download-manager/desktop' exec tauri build --ci `
             --bundles nsis --no-sign |
